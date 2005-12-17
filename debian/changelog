@@ -1,3 +1,14 @@
+icecast2 (2.3.1-2) unstable; urgency=low
+
+  * This package is now team-maintained!
+    + Debian Icecast team <pkg-icecast-devel@lists.alioth.debian.org>
+      maintains the package, with me as uploader.
+    + If you want to help improve the package or want other Icecast-
+      related packages maintained here then drop an email to the above
+      mailinglist!
+
+ -- Jonas Smedegaard <dr@jones.dk>  Sat, 17 Dec 2005 21:41:55 +0100
+
 icecast2 (2.3.1-1) unstable; urgency=low
 
   * New upstream release. Closes: bug#343613 (thanks to Alexander
