@@ -8,12 +8,6 @@ packaging files.
 
 Upstream Authors: the icecast team <team@icecast.org>
 
-Copyright and license; src/httpd/:
-
-  licensed under the lgpl
-  
-  created by jack moffitt <jack@icecast.org>
-
 Copyright and license; src/avl/:
 
  * Copyright (C) 1995-1997 by Sam Rushing <rushing@nightmare.com>

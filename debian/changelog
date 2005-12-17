@@ -4,6 +4,7 @@ icecast2 (2.3.1-3) UNRELEASED; urgency=low
   * Small adjustments to debian/copyright:
     + Remove note on "FSF address adjusted" (it was stripped instead).
     + Correct path to src/httpp (not src/httpd).
+    + Mention src/httpp licensing info only once.
 
  -- Jonas Smedegaard <dr@jones.dk>  Sat, 17 Dec 2005 22:40:29 +0100
 
