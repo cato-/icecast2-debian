@@ -8,6 +8,8 @@ icecast2 (2.3.1-2) unstable; urgency=low
       mailinglist!
   * Move auto-update of debian/control out in reusable cdbs snippet.
   * Minor update to other cdbs snippets (non-unique cdbs namespace).
+  * Auto-update debian/control, and manually strip build-essential from
+    build-dependencies to not upset ftp-masters.
 
  -- Jonas Smedegaard <dr@jones.dk>  Sat, 17 Dec 2005 21:41:55 +0100
 
