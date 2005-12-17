@@ -2,11 +2,7 @@
 # -*- mode: makefile; coding: utf-8 -*-
 # Copyright © 2004-2005 Jonas Smedegaard <dr@jones.dk>
 
-# Set DEB_BUILD_OPTIONS=update in environment to regenerate control
-ifneq (,$(findstring update,$(DEB_BUILD_OPTIONS)))
-DEB_AUTO_UPDATE_DEBIAN_CONTROL := yes
-endif
-
+include debian/cdbs/1/rules/auto-update.mk
 include /usr/share/cdbs/1/rules/debhelper.mk
 include /usr/share/cdbs/1/class/autotools.mk
 include debian/cdbs/1/rules/buildinfo.mk

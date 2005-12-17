@@ -23,8 +23,8 @@ _cdbs_rules_path ?= /usr/share/cdbs/1/rules
 _cdbs_class_path ?= /usr/share/cdbs/1/class
 endif
 
-ifndef _cdbs_rules_utils
-_cdbs_rules_utils := 1
+ifndef _cdbs_rules_copyright-check
+_cdbs_rules_copyright-check := 1
 
 include $(_cdbs_rules_path)/buildcore.mk$(_cdbs_makefile_suffix)
 

@@ -6,6 +6,8 @@ icecast2 (2.3.1-2) unstable; urgency=low
     + If you want to help improve the package or want other Icecast-
       related packages maintained here then drop an email to the above
       mailinglist!
+  * Move auto-update of debian/control out in reusable cdbs snippet.
+  * Minor update to other cdbs snippets (non-unique cdbs namespace).
 
  -- Jonas Smedegaard <dr@jones.dk>  Sat, 17 Dec 2005 21:41:55 +0100
 
