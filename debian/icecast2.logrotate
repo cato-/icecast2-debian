@@ -1,0 +1,10 @@
+/var/log/icecast2/*.log {
+	weekly
+	missingok
+	rotate 7
+	postrotate
+		invoke-rc.d --quiet icecast2 reload > /dev/null
+	endscript
+	compress
+	notifempty
+}

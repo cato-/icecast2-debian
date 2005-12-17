@@ -1,0 +1,8 @@
+icecast2 (2.0.0-1) unstable; urgency=low
+
+  * Icecast2 now uses username "icecast2" instead of the earlier
+    "icecast", to avoid problems with both icecast and icecast2
+    installed concurrently on the same machine.
+    Groupname is still "icecast".
+
+ -- Jonas Smedegaard <dr@jones.dk>  Mon, 26 Jan 2004 06:30:26 +0100
