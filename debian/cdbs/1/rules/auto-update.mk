@@ -1,5 +1,5 @@
 # -*- mode: makefile; coding: utf-8 -*-
-# Copyright © 2005 Jonas Smedegaard <dr@jones.dk>
+# Copyright © 2005-2006 Jonas Smedegaard <dr@jones.dk>
 # Description: Auto-update debian/control from debian/control.in
 #  When the environment variable DEB_BUILD_OPTIONS contains the magic
 #  string "update" the clean target is extended to auto-update
@@ -39,6 +39,6 @@ ifneq (,$(findstring update,$(DEB_BUILD_OPTIONS)))
 DEB_AUTO_UPDATE_DEBIAN_CONTROL := yes
 endif
 
-include $(_cdbs_rules_path)/buildcore.mk$(_cdbs_makefile_suffix)
-
+# Avoid build-dependency on build-essential (to please ftpmasters)
+CDBS_BUILD_DEPENDS :=
 endif
