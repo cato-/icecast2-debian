@@ -1,3 +1,19 @@
+icecast2 (2.3.1-5) unstable; urgency=low
+
+  * Add patch to syncronize with upstream SVN as of 20060620 (r11419).
+    Reasoning: No new upstream release for quite some time, and changes
+    in SVN seems to only be small tightenings, not new risky features.
+    + Safer use of ICECAST_VERSION_STRING.
+    + Fix (void) function prototypes.
+    + Fix various leaks.
+    + Fail on unrecognized codec, dropping source instead of looping.
+    + Improved slave handling.
+    + Prevent races by locking when modifying content.
+    + Fix possible bad pointer dereference when processing new clients.
+    + Consistently use compat.h (and drop os.h).
+
+ -- Jonas Smedegaard <dr@jones.dk>  Sat, 19 Aug 2006 21:57:36 +0200
+
 icecast2 (2.3.1-4) unstable; urgency=low
 
   * Acknowledge NMU. Closes: bug#375253, #373855, #373818.
