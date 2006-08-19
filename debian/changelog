@@ -1,3 +1,11 @@
+icecast2 (2.3.1-4) unstable; urgency=low
+
+  * Acknowledge NMU. Closes: bug#375253.
+  * Build-depend on libtheora-dev again (but at least alpha7), as later
+    suggested in the above bug#375253. Closes: bug#308939.
+
+ -- Jonas Smedegaard <dr@jones.dk>  Sat, 19 Aug 2006 20:11:00 +0200
+
 icecast2 (2.3.1-3.1) unstable; urgency=high
 
   * Non-maintainer upload.
