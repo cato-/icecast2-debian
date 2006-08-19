@@ -12,7 +12,6 @@ icecast2 (2.3.1-5) unstable; urgency=low
     + Fix possible bad pointer dereference when processing new clients.
     + Consistently use compat.h (and drop os.h).
   * Enable cdbs update of automake, as the above change Makefile.am's.
-  * Compile with -fsigned-char to work around signedness warnings.
 
  -- Jonas Smedegaard <dr@jones.dk>  Sat, 19 Aug 2006 21:57:36 +0200
 
