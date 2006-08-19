@@ -10,3 +10,15 @@ diff -ruN icecast2-2.3.1.orig/Makefile.am icecast2-2.3.1/Makefile.am
  
  EXTRA_DIST = HACKING m4/acx_pthread.m4 m4/ogg.m4 \
      m4/theora.m4 m4/vorbis.m4 m4/speex.m4 \
+diff -ruN icecast2-2.3.1.orig/configure.in icecast2-2.3.1/configure.in
+--- icecast2-2.3.1.orig/configure.in.orig	2005-11-30 19:16:36.000000000 +0100
++++ icecast2-2.3.1/configure.in	2006-08-19 21:50:34.000000000 +0200
+@@ -146,7 +146,7 @@
+ AC_SUBST(PROFILE)
+ AC_SUBST(ICECAST_OPTIONAL)
+ 
+-AC_OUTPUT([Makefile conf/Makefile debian/Makefile src/Makefile src/avl/Makefile
++AC_OUTPUT([Makefile conf/Makefile src/Makefile src/avl/Makefile
+ src/httpp/Makefile src/thread/Makefile src/log/Makefile
+ src/net/Makefile src/timing/Makefile doc/Makefile web/Makefile
+ admin/Makefile win32/Makefile win32/res/Makefile examples/Makefile])
