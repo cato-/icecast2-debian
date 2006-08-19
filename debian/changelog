@@ -1,3 +1,15 @@
+icecast2 (2.3.1-3.1) unstable; urgency=high
+
+  * Non-maintainer upload.
+  * Disable Theora support (by removing Depends and Build-Depends on
+    libtheora0 and libtheora-dev, adding a Build-Conflicts on libtheora-dev
+    instead); the 0.0.0.alpha6 version is currently too unstable (see
+    #340175), and 0.0.0.alpha5 is no longer in the archive. This fixes both
+    FTBFS (Closes: #373855) and missing dependency (Closes: #373818) problems,
+    but it reopens #308939.
+
+ -- Steinar H. Gunderson <sesse@debian.org>  Sat, 24 Jun 2006 21:06:52 +0200
+
 icecast2 (2.3.1-3) unstable; urgency=low
 
   * Small adjustments to debian/copyright:
