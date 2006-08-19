@@ -1,9 +1,12 @@
 icecast2 (2.3.1-4) unstable; urgency=low
 
-  * Acknowledge NMU. Closes: bug#375253.
+  * Acknowledge NMU. Closes: bug#375253, #373855, #373818.
   * Build-depend on libtheora-dev again (but at least alpha7), as later
     suggested in the above bug#375253. Closes: bug#308939.
   * Bump standards-version to 3.7.2 (no changes needed).
+  * Enable cdbs relibtoolization, fixing linkage problem causing FTBFS.
+    Closes: bug#346507 (thanks to "J.H.M. Dassen (Ray)"
+    <fsmla@xinara.org>).
 
  -- Jonas Smedegaard <dr@jones.dk>  Sat, 19 Aug 2006 20:11:00 +0200
 
