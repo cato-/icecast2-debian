@@ -8,7 +8,7 @@ case "$1" in
 	rm -rf /var/log/icecast2
 
 	if id icecast2 >/dev/null 2>&1; then
-		deluser icecast2
+		deluser icecast2 || echo "Error occured removing user icecast, please do it manually."
 	fi
 
 	# Remove group only if empty

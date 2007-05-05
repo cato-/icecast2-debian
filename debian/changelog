@@ -1,3 +1,10 @@
+icecast2 (2.3.1-6) unstable; urgency=low
+
+  * If removing icecast user in postrm, warn about it (don't fail).
+    Closes: bug#416771, thanks to Michael Ablassmeier.
+
+ -- Jonas Smedegaard <dr@jones.dk>  Sat, 05 May 2007 20:32:28 +0200
+
 icecast2 (2.3.1-5) unstable; urgency=low
 
   * Add patch to syncronize with upstream SVN as of 20060620 (r11419).
