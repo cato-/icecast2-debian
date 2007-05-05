@@ -15,6 +15,8 @@ icecast2 (2.3.1-6) unstable; urgency=low
   * Resolve all build-dependencies using cdbs, and cleanup duplicates.
   * Bump up to using automake1.10 (from 1.7).
   * Bump up to using debhelper compatibility level 5 (from 4).
+  * Build-depend on libxslt1-dev (and on virtual libxslt-dev only as
+    fallback).
 
  -- Jonas Smedegaard <dr@jones.dk>  Sat, 05 May 2007 20:32:28 +0200
 
