@@ -4,6 +4,14 @@ icecast2 (2.3.1-6) unstable; urgency=low
     Closes: bug#416771, thanks to Michael Ablassmeier.
   * Add patch to fix generating /admin/streamlist.txt with missing mount
     tags. Closes: bug#405524, thanks to Yauhen Kharuzhy.
+  * Update local cdbs tweaks:
+    + Add new local cdbs tweak upstream.tarball.mk to add a
+      get-orig-source target and more.
+    + Replace auto-update.mk with overloading buildcore.mk.
+    + Emit list of suspects if new copyrights are found.
+    + Check for copyrights at pre-build (at clean we might run before
+      actual cleanup has finished).
+    + document the tweaks in debian/README.cdbs-tweaks.
 
  -- Jonas Smedegaard <dr@jones.dk>  Sat, 05 May 2007 20:32:28 +0200
 

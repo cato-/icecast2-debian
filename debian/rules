@@ -1,18 +1,24 @@
 #!/usr/bin/make -f
 # -*- mode: makefile; coding: utf-8 -*-
-# Copyright © 2004-2005 Jonas Smedegaard <dr@jones.dk>
+# Copyright © 2004-2007 Jonas Smedegaard <dr@jones.dk>
 
 DEB_AUTO_UPDATE_LIBTOOL = pre
 DEB_AUTO_UPDATE_ACLOCAL = 1.7
 DEB_AUTO_UPDATE_AUTOMAKE = 1.7
 DEB_AUTO_UPDATE_AUTOCONF = 2.60
 
-include debian/cdbs/1/rules/auto-update.mk
-include /usr/share/cdbs/1/rules/debhelper.mk
-include /usr/share/cdbs/1/class/autotools.mk
-include /usr/share/cdbs/1/rules/patchsys-quilt.mk
-include debian/cdbs/1/rules/buildinfo.mk
+# See debian/README.cdbs-tweaks for info on local overrides
+include debian/cdbs/1/rules/buildcore.mk
+include debian/cdbs/1/rules/upstream-tarball.mk
 include debian/cdbs/1/rules/copyright-check.mk
+include /usr/share/cdbs/1/rules/patchsys-quilt.mk
+include /usr/share/cdbs/1/class/autotools.mk
+include debian/cdbs/1/rules/buildinfo.mk
+include /usr/share/cdbs/1/rules/debhelper.mk
+
+DEB_UPSTREAM_PACKAGE = icecast
+DEB_UPSTREAM_URL = http://downloads.us.xiph.org/releases/icecast
+DEB_UPSTREAM_TARBALL_MD5 = d41d8cd98f00b204e9800998ecf8427e
 
 DEB_CONFIGURE_SYSCONFDIR = /etc/icecast2
 DEB_CONFIGURE_EXTRA_FLAGS = --program-transform-name="s/icecast$$/icecast2/"
