@@ -1,3 +1,9 @@
+icecast2 (2.3.1-7) UNRELEASED; urgency=low
+
+  * NOT RELEASED YET
+
+ -- Jonas Smedegaard <dr@jones.dk>  Sat, 05 May 2007 21:39:08 +0200
+
 icecast2 (2.3.1-6) unstable; urgency=low
 
   * If removing icecast user in postrm, warn about it (don't fail).
