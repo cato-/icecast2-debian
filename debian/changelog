@@ -12,6 +12,9 @@ icecast2 (2.3.1-6) unstable; urgency=low
     + Check for copyrights at pre-build (at clean we might run before
       actual cleanup has finished).
     + document the tweaks in debian/README.cdbs-tweaks.
+  * Resolve all build-dependencies using cdbs, and cleanup duplicates.
+  * Bump up to using automake1.10 (from 1.7).
+  * Bump up to using debhelper compatibility level 5 (from 4).
 
  -- Jonas Smedegaard <dr@jones.dk>  Sat, 05 May 2007 20:32:28 +0200
 
