@@ -4,7 +4,7 @@ Priority: optional
 Maintainer: Debian Icecast team <pkg-icecast-devel@lists.alioth.debian.org>
 Uploaders: Jonas Smedegaard <dr@jones.dk>
 Build-Depends: @cdbs@
-XS-Vcs-Svn: svn://svn.debian.org/svn/svn/pkg-icecast/icecast2/trunk
+XS-Vcs-Svn: svn://svn.debian.org/svn/pkg-icecast/icecast2/trunk
 XS-Vcs-Browser: http://svn.debian.org/wsvn/svn/pkg-icecast/icecast2/trunk
 Standards-Version: 3.7.2
 
