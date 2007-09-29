@@ -1,8 +1,9 @@
 icecast2 (2.3.1-7) UNRELEASED; urgency=low
 
   * Add XS-Vcs-Svn and XS-Vcs-Browser fields to debian/control.
+  * Move Homepage to own field (from pseudo-field in long description).
 
- -- Jonas Smedegaard <dr@jones.dk>  Mon, 27 Aug 2007 13:14:30 +0200
+ -- Jonas Smedegaard <dr@jones.dk>  Sat, 29 Sep 2007 13:26:33 +0200
 
 icecast2 (2.3.1-6) unstable; urgency=low
 

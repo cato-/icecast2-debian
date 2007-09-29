@@ -7,6 +7,7 @@ Build-Depends: @cdbs@
 XS-Vcs-Svn: svn://svn.debian.org/svn/pkg-icecast/icecast2/trunk
 XS-Vcs-Browser: http://svn.debian.org/wsvn/pkg-icecast/icecast2/trunk
 Standards-Version: 3.7.2
+Homepage: http://www.icecast.org/
 
 Package: icecast2
 Architecture: any
@@ -19,5 +20,3 @@ Description: Ogg Vorbis and MP3 streaming media server
  between. It is very versatile in that new formats can be added 
  relatively easily and supports open standards for communication and 
  interaction.
- .
-  Homepage: http://www.icecast.org/
