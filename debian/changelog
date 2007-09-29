@@ -1,7 +1,7 @@
 icecast2 (2.3.1-6) unstable; urgency=low
 
-  * If removing icecast user in postrm, warn about it (don't fail).
-    Closes: bug#416771, thanks to Michael Ablassmeier.
+  * Acknowledge NMU. Closes: bug#416771, #423778, thanks to Luk Claes
+    and Michael Ablassmeier.
   * Add patch to fix generating /admin/streamlist.txt with missing mount
     tags. Closes: bug#405524, thanks to Yauhen Kharuzhy.
   * Update local cdbs tweaks:
