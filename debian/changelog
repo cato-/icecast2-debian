@@ -20,6 +20,8 @@ icecast2 (2.3.1-6) unstable; urgency=low
     fallback).
   * Add XS-Vcs-Svn and XS-Vcs-Browser fields to debian/control.
   * Move Homepage to own field (from pseudo-field in long description).
+  * Semi-auto-update debian/control:
+      DEB_BUILD_OPTIONS=cdbs-autoupdate fakeroot debian/rules pre-build
 
  -- Jonas Smedegaard <dr@jones.dk>  Sat, 29 Sep 2007 15:27:17 +0200
 
