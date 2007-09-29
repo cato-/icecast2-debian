@@ -8,12 +8,16 @@ case "$1" in
 	rm -rf /var/log/icecast2
 
 	if id icecast2 >/dev/null 2>&1; then
-		deluser icecast2 || echo "Error occured removing user icecast, please do it manually."
+		if [ -x /usr/sbin/deluser ]; then
+			/usr/sbin/deluser icecast2
+		fi
 	fi
 
 	# Remove group only if empty
 	if getent group icecast | awk -F: ' { print $4 } ' | egrep -cq '^$'; then
-		groupdel icecast || echo "Error occured removing group icecast, please do it manually."
+		if [ -x /usr/sbin/groupdel ]; then
+			/usr/sbin/groupdel icecast || echo "Error occured removing group icecast, please do it manually."
+		fi
 	fi
 	;;
     remove|upgrade|failed-upgrade|abort-install|abort-upgrade|disappear)

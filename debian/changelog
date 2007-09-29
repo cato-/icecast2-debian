@@ -2,8 +2,9 @@ icecast2 (2.3.1-7) UNRELEASED; urgency=low
 
   * Add XS-Vcs-Svn and XS-Vcs-Browser fields to debian/control.
   * Move Homepage to own field (from pseudo-field in long description).
+  * Improved dependency cleanup.
 
- -- Jonas Smedegaard <dr@jones.dk>  Sat, 29 Sep 2007 13:26:33 +0200
+ -- Jonas Smedegaard <dr@jones.dk>  Sat, 29 Sep 2007 15:27:17 +0200
 
 icecast2 (2.3.1-6) unstable; urgency=low
 
@@ -26,6 +27,14 @@ icecast2 (2.3.1-6) unstable; urgency=low
     fallback).
 
  -- Jonas Smedegaard <dr@jones.dk>  Sat, 05 May 2007 20:32:28 +0200
+
+icecast2 (2.3.1-5.1) unstable; urgency=high
+
+  * Non-maintainer upload during BSP.
+  * Fix unconditional use of passwd package in postrm (Closes: #416771).
+  * Fix FTBFS due to use of obsolete curl API (Closes: #423778).
+
+ -- Luk Claes <luk@debian.org>  Sat, 19 May 2007 14:45:18 +0200
 
 icecast2 (2.3.1-5) unstable; urgency=low
 
