@@ -1,3 +1,4 @@
 0001_svn_r11419_20060620.patch
 1001_autotools_avoid_debian-subdir.patch
 1002_streamlist_txt_generation.patch
+1003_workaround_obsolete_curl_API.patch
