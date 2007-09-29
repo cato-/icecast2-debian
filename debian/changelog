@@ -11,6 +11,7 @@ icecast2 (2.3.1-6) unstable; urgency=low
     + Emit list of suspects if new copyrights are found.
     + Check for copyrights at pre-build (at clean we might run before
       actual cleanup has finished).
+    + Various improvements to update-tarball.
     + document the tweaks in debian/README.cdbs-tweaks.
   * Resolve all build-dependencies using cdbs, and cleanup duplicates.
   * Bump up to using automake1.10 (from 1.7).

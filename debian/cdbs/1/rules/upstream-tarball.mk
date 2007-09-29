@@ -24,10 +24,14 @@ _cdbs_class_path ?= /usr/share/cdbs/1/class
 ifndef _cdbs_rules_upstream_tarball
 _cdbs_rules_upstream_tarball := 1
 
+include $(_cdbs_rules_path)/buildvars.mk$(_cdbs_makefile_suffix)
+
+CDBS_BUILD_DEPENDS := $(CDBS_BUILD_DEPENDS), cdbs (>= 0.4.39)
+
 # Prefix for upstream location of all upstream tarballs (mandatory!)
 #DEB_UPSTREAM_URL = 
 DEB_UPSTREAM_PACKAGE = $(DEB_SOURCE_PACKAGE)
-DEB_UPSTREAM_TARBALL_VERSION = $(if $(strip $(DEB_UPSTREAM_REPACKAGE_EXCLUDE)),$(shell basename '$(DEB_UPSTREAM_VERSION)' '.$(DEB_UPSTREAM_REPACKAGE_TAG)'),$(DEB_UPSTREAM_VERSION))
+DEB_UPSTREAM_TARBALL_VERSION = $(if $(strip $(DEB_UPSTREAM_REPACKAGE_EXCLUDE)),$(DEB_UPSTREAM_VERSION:$(DEB_UPSTREAM_REPACKAGE_DELIMITER)$(DEB_UPSTREAM_REPACKAGE_TAG)=),$(DEB_UPSTREAM_VERSION))
 DEB_UPSTREAM_TARBALL_BASENAME = $(DEB_UPSTREAM_PACKAGE)-$(DEB_UPSTREAM_TARBALL_VERSION)
 DEB_UPSTREAM_TARBALL_EXTENSION = tar.gz
 # Checksum to ensure integrity of downloadeds using get-orig-source (optional)
@@ -41,11 +45,12 @@ DEB_UPSTREAM_TARBALL_SRCDIR = $(DEB_UPSTREAM_PACKAGE)-$(DEB_UPSTREAM_TARBALL_VER
 # Space-delimited list of directories and files to strip (optional)
 #DEB_UPSTREAM_REPACKAGE_EXCLUDE = CVS .cvsignore doc/rfc*.txt doc/draft*.txt
 DEB_UPSTREAM_REPACKAGE_TAG = dfsg
+DEB_UPSTREAM_REPACKAGE_DELIMITER = .
 
 cdbs_upstream_tarball = $(DEB_UPSTREAM_TARBALL_BASENAME).$(DEB_UPSTREAM_TARBALL_EXTENSION)
-cdbs_upstream_local_tarball = $(DEB_SOURCE_PACKAGE)_$(DEB_UPSTREAM_VERSION).orig.$(if $(findstring $(DEB_UPSTREAM_TARBALL_EXTENSION),tgz),tar.gz,$(DEB_UPSTREAM_TARBALL_EXTENSION))
-cdbs_upstream_repackaged_tarball = $(DEB_SOURCE_PACKAGE)_$(DEB_UPSTREAM_VERSION).$(DEB_UPSTREAM_REPACKAGE_TAG).orig.tar.gz
-cdbs_upstream_uncompressed_tarball = $(DEB_SOURCE_PACKAGE)_$(DEB_UPSTREAM_VERSION).orig.tar
+cdbs_upstream_local_tarball = $(DEB_SOURCE_PACKAGE)_$(DEB_UPSTREAM_TARBALL_VERSION).orig.$(if $(findstring $(DEB_UPSTREAM_TARBALL_EXTENSION),tgz),tar.gz,$(DEB_UPSTREAM_TARBALL_EXTENSION))
+cdbs_upstream_repackaged_tarball = $(DEB_SOURCE_PACKAGE)_$(DEB_UPSTREAM_TARBALL_VERSION)$(DEB_UPSTREAM_REPACKAGE_DELIMITER)$(DEB_UPSTREAM_REPACKAGE_TAG).orig.tar.gz
+cdbs_upstream_uncompressed_tarball = $(DEB_SOURCE_PACKAGE)_$(DEB_UPSTREAM_TARBALL_VERSION).orig.tar
 
 # # These variables are deprecated
 _cdbs_deprecated_vars += DEB_UPSTREAM_TARBALL DEB_UPSTREAM_LOCAL_TARBALL DEB_UPSTREAM_REPACKAGE_TARBALL
@@ -60,7 +65,10 @@ get-orig-source:
 	@@dh_testdir
 	@@mkdir -p "$(DEB_UPSTREAM_WORKDIR)"
 
-	@if [ ! -f "$(DEB_UPSTREAM_WORKDIR)/$(cdbs_upstream_local_tarball)" ] ; then \
+	@if [ ! -s "$(DEB_UPSTREAM_WORKDIR)/$(cdbs_upstream_local_tarball)" ] ; then \
+		if [ -f "$(DEB_UPSTREAM_WORKDIR)/$(cdbs_upstream_local_tarball)" ] ; then \
+			rm "$(DEB_UPSTREAM_WORKDIR)/$(cdbs_upstream_local_tarball)" ; \
+		fi ; \
 		echo "Downloading $(cdbs_upstream_local_tarball) from $(DEB_UPSTREAM_URL)/$(cdbs_upstream_tarball) ..." ; \
 		wget -N -nv -T10 -t3 -O "$(DEB_UPSTREAM_WORKDIR)/$(cdbs_upstream_local_tarball)" "$(DEB_UPSTREAM_URL)/$(cdbs_upstream_tarball)" ; \
 	else \
@@ -94,7 +102,7 @@ get-orig-source:
 		mkdir -p "$(DEB_UPSTREAM_WORKDIR)/$(DEB_UPSTREAM_REPACKAGE_TAG)" && \
 		$$unpack "$(DEB_UPSTREAM_WORKDIR)/$(cdbs_upstream_local_tarball)" \
 			| tar -x -C "$(DEB_UPSTREAM_WORKDIR)/$(DEB_UPSTREAM_REPACKAGE_TAG)" $(patsubst %,--exclude='%',$(DEB_UPSTREAM_REPACKAGE_EXCLUDE)) && \
-		GZIP=-9 tar -b1 -czf "$(cdbs_upstream_repackaged_tarball)" -C "$(DEB_UPSTREAM_WORKDIR)/$(DEB_UPSTREAM_REPACKAGE_TAG)" $(DEB_UPSTREAM_TARBALL_SRCDIR) && \
+		GZIP=-9 tar -b1 -czf "$(DEB_UPSTREAM_WORKDIR)/$(cdbs_upstream_repackaged_tarball)" -C "$(DEB_UPSTREAM_WORKDIR)/$(DEB_UPSTREAM_REPACKAGE_TAG)" $(DEB_UPSTREAM_TARBALL_SRCDIR) && \
 		echo "Cleaning up" && \
 		rm -rf "$(DEB_UPSTREAM_WORKDIR)/$(DEB_UPSTREAM_REPACKAGE_TAG)"; \
 	elif [ -n "$$uncompress" ]; then \
