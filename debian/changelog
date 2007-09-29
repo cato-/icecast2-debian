@@ -2,8 +2,8 @@ icecast2 (2.3.1-6) unstable; urgency=low
 
   * Acknowledge NMU. Closes: bug#416771, #423778, thanks to Luk Claes
     and Michael Ablassmeier.
-  * Add patch to fix generating /admin/streamlist.txt with missing mount
-    tags. Closes: bug#405524, thanks to Yauhen Kharuzhy.
+  * Add patch 1002 to fix generating /admin/streamlist.txt with missing
+    mount tags. Closes: bug#405524, thanks to Yauhen Kharuzhy.
   * Isolate CURL bugfix from -5.1 NMU as patch 1003.
   * Update local cdbs tweaks:
     + Add new local cdbs tweak upstream.tarball.mk to add a
