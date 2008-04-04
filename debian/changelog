@@ -1,3 +1,18 @@
+icecast2 (2.3.1-7) unstable; urgency=low
+
+  * Acknowledge NMU
+  Closes: #460853
+  * Updated Uploaders field
+
+ -- Romain Beauxis <toots@rastageeks.org>  Fri, 04 Apr 2008 16:32:55 +0100
+
+icecast2 (2.3.1-6.1) unstable; urgency=low
+
+  * Non-maintainer upload to solve release goal.
+  * Add LSB dependency header to init.d scripts (Closes: #460853).
+
+ -- Petter Reinholdtsen <pere@debian.org>  Sat, 29 Mar 2008 19:39:17 +0100
+
 icecast2 (2.3.1-6) unstable; urgency=low
 
   * Acknowledge NMU. Closes: bug#416771, #423778, thanks to Luk Claes

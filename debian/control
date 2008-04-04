@@ -2,8 +2,8 @@ Source: icecast2
 Section: sound
 Priority: optional
 Maintainer: Debian Icecast team <pkg-icecast-devel@lists.alioth.debian.org>
-Uploaders: Jonas Smedegaard <dr@jones.dk>
-Build-Depends: autotools-dev, cdbs (>= 0.4.39), quilt, patchutils (>= 0.2.25), libtool, automake1.10, autoconf, dh-buildinfo, debhelper (>= 5), libogg-dev (>> 1.0.0), libvorbis-dev (>> 1.0.0), libxslt1-dev | libxslt-dev, libxml2-dev, libcurl3-gnutls-dev, libtheora-dev (>= 0.0.0.alpha7), libspeex-dev
+Uploaders: Guillaume Pellerin <yomguy@altern.org>, Romain Beauxis <toots@rastageeks.org>, Ying-Chun Liu <grandpaul@gmail.com>, Jonas Smedegaard <dr@jones.dk>
+Build-Depends: cdbs (>= 0.4.39), quilt, patchutils (>= 0.2.25), libtool, automake1.10, autoconf, dh-buildinfo, debhelper (>= 5), libogg-dev (>> 1.0.0), libvorbis-dev (>> 1.0.0), libxslt1-dev | libxslt-dev, libxml2-dev, libcurl3-gnutls-dev, libtheora-dev (>= 0.0.0.alpha7), libspeex-dev
 XS-Vcs-Svn: svn://svn.debian.org/svn/pkg-icecast/icecast2/trunk
 XS-Vcs-Browser: http://svn.debian.org/wsvn/pkg-icecast/icecast2/trunk
 Standards-Version: 3.7.2

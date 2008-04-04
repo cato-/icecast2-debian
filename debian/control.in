@@ -2,7 +2,7 @@ Source: icecast2
 Section: sound
 Priority: optional
 Maintainer: Debian Icecast team <pkg-icecast-devel@lists.alioth.debian.org>
-Uploaders: Jonas Smedegaard <dr@jones.dk>
+Uploaders: Guillaume Pellerin <yomguy@altern.org>, Romain Beauxis <toots@rastageeks.org>, Ying-Chun Liu <grandpaul@gmail.com>, Jonas Smedegaard <dr@jones.dk>
 Build-Depends: @cdbs@
 XS-Vcs-Svn: svn://svn.debian.org/svn/pkg-icecast/icecast2/trunk
 XS-Vcs-Browser: http://svn.debian.org/wsvn/pkg-icecast/icecast2/trunk
