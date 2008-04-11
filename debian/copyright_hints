@@ -1,31 +1,244 @@
-$echo "Copyright (C) 2005  Free Software Foundation, Inc."
-Copyright (C) 1989, 1991 Free Software Foundation, Inc.
-Copyright (C) 1991 Free Software Foundation, Inc.
-Copyright (C) 1992, 1993, 1994, 1995, 1996, 1997, 1998, 1999,
-Copyright (C) 1992, 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005
-Copyright (C) 1995 by Sam Rushing <rushing@nightmare.com>
-Copyright (C) 1995-1997 by Sam Rushing <rushing@nightmare.com>
-Copyright (C) 1996, 1997, 1998, 1999, 2000, 2001
-Copyright (C) 1996, 1997, 1998, 1999, 2000, 2001, 2003, 2004, 2005
-Copyright (C) 1996, 1997, 1999, 2000, 2002 Free Software Foundation, Inc.
-Copyright (C) 1999 the icecast team <team@icecast.org>
-Copyright (C) 2003 Free Software Foundation, Inc.
-Copyright (c) 1999 the icecast team
-Copyright (c) 1999, 2000 the icecast team <team@icecast.org>
-Copyright 1991 by the Massachusetts Institute of Technology
-Copyright 1994, 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002
-Copyright 1996, 1997, 1998, 1999, 2000, 2001, 2002
-Copyright 1996, 1997, 2000, 2001 Free Software Foundation, Inc.
-Copyright 1996, 1998, 2000, 2001 Free Software Foundation, Inc.
-Copyright 1997, 1999, 2000, 2001 Free Software Foundation, Inc.
-Copyright 1997, 2000, 2001 Free Software Foundation, Inc.
-Copyright 1999, 2000 Free Software Foundation, Inc.
-Copyright 1999, 2000, 2001 Free Software Foundation, Inc.
-Copyright 1999, 2000, 2001, 2002 Free Software Foundation, Inc.
-Copyright 2000-2004, Jack Moffitt <jack@xiph.org,
-Copyright 2000-2004, Jack Moffitt <jack@xiph.org>,
-Copyright 2001 Free Software Foundation, Inc.
-Copyright 2001 Free Software Foundation, Inc.             -*- Autoconf -*-
-Copyright 2001, 2002  Free Software Foundation, Inc.
-Copyright 2002  Free Software Foundation, Inc.
-VALUE "LegalCopyright", "Copyright (C) 2001\0"
+*No copyright* UNKNOWN []: AUTHORS
+	ChangeLog
+	HACKING
+	Makefile.am
+	NEWS
+	README
+	TODO
+	admin/Makefile.am
+	admin/listclients.xsl
+	admin/listmounts.xsl
+	admin/manageauth.xsl
+	admin/moveclients.xsl
+	admin/response.xsl
+	admin/stats.xsl
+	admin/updatemetadata.xsl
+	conf/Makefile.am
+	conf/icecast_minimal.xml.in
+	conf/icecast_urlauth.xml.in
+	config.h.in
+	configure.in
+	doc/Index.hhk
+	doc/Makefile.am
+	doc/icecast2.hhc
+	doc/icecast2.hhp
+	doc/icecast2_admin.html
+	doc/icecast2_basicsetup.html
+	doc/icecast2_changes.html
+	doc/icecast2_config_file.html
+	doc/icecast2_faq.html
+	doc/icecast2_glossary.html
+	doc/icecast2_introduction.html
+	doc/icecast2_listenerauth.html
+	doc/icecast2_relay.html
+	doc/icecast2_stats.html
+	doc/icecast2_win32.html
+	doc/icecast2_yp.html
+	doc/index.html
+	doc/index_win32.html
+	doc/listener_auth1.jpg
+	doc/listener_auth2.jpg
+	doc/listener_auth3.jpg
+	doc/stats1.jpg
+	doc/style.css
+	doc/win32_section1.html
+	doc/win32_section2.html
+	doc/win32_section3.html
+	doc/windowtitle.jpg
+	examples/Makefile.am
+	examples/icecast_auth-1.0.tar.gz
+	icecast.spec
+	m4/acx_pthread.m4
+	m4/ogg.m4
+	m4/speex.m4
+	m4/theora.m4
+	m4/vorbis.m4
+	m4/xiph_compiler.m4
+	m4/xiph_curl.m4
+	m4/xiph_net.m4
+	m4/xiph_types.m4
+	m4/xiph_xml2.m4
+	mkinstalldirs
+	src/Makefile.am
+	src/TODO
+	src/avl/BUILDING
+	src/avl/Makefile.am
+	src/avl/README
+	src/avl/TODO
+	src/avl/test.c
+	src/httpp/Makefile.am
+	src/httpp/README
+	src/httpp/TODO
+	src/httpp/httpp.c
+	src/httpp/httpp.h
+	src/log/Makefile.am
+	src/log/log.c
+	src/log/log.h
+	src/log/test.c
+	src/net/BUILDING
+	src/net/Makefile.am
+	src/net/README
+	src/net/TODO
+	src/net/resolver.h
+	src/net/test_resolver.c
+	src/thread/BUILDING
+	src/thread/Makefile.am
+	src/thread/README
+	src/thread/TODO
+	src/timing/BUILDING
+	src/timing/Makefile.am
+	src/timing/README
+	src/timing/TODO
+	src/timing/timing.c
+	src/timing/timing.h
+	web/Makefile.am
+	web/auth.xsl
+	web/corner_bottomleft.jpg
+	web/corner_bottomright.jpg
+	web/corner_topleft.jpg
+	web/corner_topright.jpg
+	web/icecast.png
+	web/key.gif
+	web/key.png
+	web/server_version.xsl
+	web/status.xsl
+	web/status2.xsl
+	web/style.css
+	web/tunein.png
+	win32/ConfigTab.cpp
+	win32/ConfigTab.h
+	win32/Icecast2win.clw
+	win32/Icecast2win.rc
+	win32/Icecast2winDlg.cpp
+	win32/Icecast2winDlg.h
+	win32/Makefile.am
+	win32/StatsTab.cpp
+	win32/StatsTab.h
+	win32/Status.cpp
+	win32/Status.h
+	win32/StdAfx.cpp
+	win32/StdAfx.h
+	win32/TRAYNOT.h
+	win32/TabCtrlSSL.cpp
+	win32/TabCtrlSSL.h
+	win32/TabPageSSL.cpp
+	win32/TabPageSSL.h
+	win32/Traynot.cpp
+	win32/black.bmp
+	win32/colors.h
+	win32/credits.bmp
+	win32/icecast.ico
+	win32/icecast2logo2.bmp
+	win32/icecast2title.bmp
+	win32/icecastService.cpp
+	win32/res/Icecast2win.rc2
+	win32/res/Makefile.am
+	win32/resource.h
+	win32/running.bmp
+	win32/stopped.bmp
+UNKNOWN [2000-2004, Jack Moffitt <jack@xiph.org]: src/admin.c
+	src/admin.h
+	src/auth.c
+	src/auth.h
+	src/auth_htpasswd.c
+	src/auth_htpasswd.h
+	src/auth_url.h
+	src/cfgfile.c
+	src/cfgfile.h
+	src/client.c
+	src/client.h
+	src/compat.h
+	src/connection.c
+	src/connection.h
+	src/event.c
+	src/event.h
+	src/format.c
+	src/format.h
+	src/format_flac.c
+	src/format_flac.h
+	src/format_midi.c
+	src/format_midi.h
+	src/format_mp3.c
+	src/format_mp3.h
+	src/format_ogg.c
+	src/format_ogg.h
+	src/format_speex.h
+	src/format_theora.c
+	src/format_theora.h
+	src/format_vorbis.c
+	src/format_vorbis.h
+	src/fserve.c
+	src/fserve.h
+	src/global.c
+	src/global.h
+	src/logging.c
+	src/logging.h
+	src/main.c
+	src/md5.h
+	src/os.h
+	src/refbuf.c
+	src/refbuf.h
+	src/sighandler.c
+	src/sighandler.h
+	src/slave.c
+	src/slave.h
+	src/source.c
+	src/source.h
+	src/stats.c
+	src/stats.h
+	src/util.c
+	src/util.h
+	src/xslt.c
+	src/xslt.h
+	src/yp.c
+	src/yp.h
+GENERATED FILE [1994-2002]: Makefile.in
+	admin/Makefile.in
+	conf/Makefile.in
+	doc/Makefile.in
+	examples/Makefile.in
+	src/Makefile.in
+	src/avl/Makefile.in
+	src/httpp/Makefile.in
+	src/log/Makefile.in
+	src/net/Makefile.in
+	src/thread/Makefile.in
+	src/timing/Makefile.in
+	web/Makefile.in
+	win32/Makefile.in
+	win32/res/Makefile.in
+*No copyright* GENERATED FILE []: conf/icecast.xml.in
+	conf/icecast_shoutcast_compat.xml.in
+	src/avl/avl.dsp
+	win32/Icecast2win.cpp
+	win32/Icecast2win.dsp
+	win32/Icecast2win.dsw
+	win32/Icecast2win.h
+	win32/icecast.dsp
+	win32/icecast2.iss
+	win32/icecast2_console.dsp
+	win32/icecast2_console.dsw
+	win32/icecastService.dsp
+UNKNOWN [1991 Free Software Foundation, Inc]: src/avl/COPYING
+	src/httpp/COPYING
+	src/net/COPYING
+	src/thread/COPYING
+	src/timing/COPYING
+GPL GENERATED FILE [1999-2000 Free Software Foundation, Inc]: compile
+	depcomp
+LGPL-2+ [1999-2000 the icecast team <team@icecast.org>]: src/thread/thread.c
+	src/thread/thread.h
+UNKNOWN [2000-2004, Jack Moffitt <jack@xiph.org>]: src/auth_url.c
+	src/format_speex.c
+GENERATED FILE [2003 Free Software Foundation, Inc]: configure
+GPL GENERATED FILE [1996-1997, 1999-2000, 2002 Free Software Foundation, Inc]: missing
+GPL [1996-2002]: aclocal.m4
+GPL-2+ GENERATED FILE [1996-2001, 2003-2005]: ltmain.sh
+GPL-2+ [1999 the icecast team]: src/net/sock.h
+LGPL-2+ [1999 the icecast team <team@icecast.org>]: src/net/resolver.c
+LGPL-2+ [1999 the icecast team]: src/net/sock.c
+Public domain [2000-2004, Jack Moffitt <jack@xiph.org / is claimed]: src/md5.c
+UNKNOWN [1989, 1991 Free Software Foundation, Inc / the software, and]: COPYING
+UNKNOWN [1995 by Sam Rushing <rushing@nightmare.com>]: src/avl/avl.h
+UNKNOWN [notice and this permission / notice appear in all / 1995-1997 by Sam Rushing <rushing@nightmare.com>]: src/avl/avl.c
+UNKNOWN [notice appear in all copies and that both that / 1991 by the Massachusetts Institute of Technology / notice and this permission notice appear in supporting]: install-sh

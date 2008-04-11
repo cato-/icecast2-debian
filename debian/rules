@@ -8,7 +8,6 @@ DEB_AUTO_UPDATE_AUTOMAKE = 1.10
 DEB_AUTO_UPDATE_AUTOCONF = 2.60
 
 # See debian/README.cdbs-tweaks for info on local overrides
-include debian/cdbs/1/rules/buildcore.mk
 include debian/cdbs/1/rules/upstream-tarball.mk
 include debian/cdbs/1/rules/copyright-check.mk
 include /usr/share/cdbs/1/rules/patchsys-quilt.mk

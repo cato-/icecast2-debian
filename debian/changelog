@@ -1,10 +1,23 @@
 icecast2 (2.3.1-7) unstable; urgency=low
 
+  [ Romain Beauxis ]
   * Acknowledge NMU
   Closes: #460853
   * Updated Uploaders field
 
- -- Romain Beauxis <toots@rastageeks.org>  Fri, 04 Apr 2008 16:32:55 +0100
+  [ Jonas Smedegaard ]
+  * Update local cdbs snippets:
+    + Major improvements to update-tarball (but none of them affecting
+      this current packaging).
+    + Major improvements to copyright-check, including new versioned
+      build-dependency on devscripts.  Update debian/copyright_hints.
+    + Drop buildcore.mk override.  Set DEB_AUTO_UPDATE_DEBIAN_CONTROL
+      directly instead when needed.
+    + Update debian/README.cdbs-tweaks
+  * Semi-auto-update debian/control to update build-dependencies:
+    DEB_AUTO_UPDATE_DEBIAN_CONTROL=yes fakeroot debian/rules clean
+
+ -- Jonas Smedegaard <dr@jones.dk>  Fri, 11 Apr 2008 02:07:38 +0200
 
 icecast2 (2.3.1-6.1) unstable; urgency=low
 
