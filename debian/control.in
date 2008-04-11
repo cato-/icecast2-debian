@@ -4,8 +4,8 @@ Priority: optional
 Maintainer: Debian Icecast team <pkg-icecast-devel@lists.alioth.debian.org>
 Uploaders: Guillaume Pellerin <yomguy@altern.org>, Romain Beauxis <toots@rastageeks.org>, Ying-Chun Liu <grandpaul@gmail.com>, Jonas Smedegaard <dr@jones.dk>
 Build-Depends: @cdbs@
-XS-Vcs-Svn: svn://svn.debian.org/svn/pkg-icecast/icecast2/trunk
-XS-Vcs-Browser: http://svn.debian.org/wsvn/pkg-icecast/icecast2/trunk
+Vcs-Svn: svn://svn.debian.org/svn/pkg-icecast/icecast2/trunk
+Vcs-Browser: http://svn.debian.org/wsvn/pkg-icecast/icecast2/trunk
 Standards-Version: 3.7.2
 Homepage: http://www.icecast.org/
 
