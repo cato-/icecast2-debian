@@ -15,6 +15,7 @@ icecast2 (2.3.1-7) unstable; urgency=low
       directly instead when needed.
     + Update debian/README.cdbs-tweaks
   * Drop leading XS- from Vcs-* fields in debian/control.
+  * Fix watch file to invoke svn-upgrade (not uupdate).
   * Semi-auto-update debian/control to update build-dependencies:
     DEB_AUTO_UPDATE_DEBIAN_CONTROL=yes fakeroot debian/rules clean
 
