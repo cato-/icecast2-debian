@@ -4,6 +4,13 @@ icecast2 (2.3.1-7) unstable; urgency=low
   * Acknowledge NMU
   Closes: #460853
   * Updated Uploaders field
+  * Made copyright check optional, add documentation
+  Closes: #442601
+  * Added a special variable to enable maintainer mode builds,
+    with, for now, copyright check and control file update. Use:
+      DEB_MAINTAINER_BUILD=yes (svn|dpkg)-buildpackage (...)
+    and similar..
+  * Bumped standards to 3.7.3 (no changes)
 
   [ Jonas Smedegaard ]
   * Update local cdbs snippets:

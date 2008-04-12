@@ -26,6 +26,9 @@ _cdbs_rules_copyright-check := 1
 
 include $(_cdbs_rules_path)/buildcore.mk$(_cdbs_makefile_suffix)
 
+# Set to yes to enable copyright check
+#DEB_COPYRIGHT_CHECK := yes
+
 CDBS_BUILD_DEPENDS := $(CDBS_BUILD_DEPENDS), devscripts (>= 2.10.7)
 
 # Single regular expression for files to include or ignore
@@ -35,6 +38,7 @@ DEB_COPYRIGHT_CHECK_IGNORE_REGEX = ^(debian/.*|(.*/)?config\.(guess|sub|rpath)(\
 pre-build:: debian/stamp-copyright-check
 
 debian/stamp-copyright-check:
+ifneq ($(DEB_COPYRIGHT_CHECK),)
 	@echo 'Scanning upstream source for new/changed copyright notices (except debian subdir!)...'
 
 # Perl in shell in make requires extra care:
@@ -86,6 +90,7 @@ debian/stamp-copyright-check:
 	@echo 'No new copyright notices found - assuming no news is good news...'
 	rm -f debian/copyright_newhints
 	touch $@
+endif
 
 clean::
 	rm -f debian/stamp-copyright-check

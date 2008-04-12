@@ -7,6 +7,12 @@ DEB_AUTO_UPDATE_ACLOCAL = 1.10
 DEB_AUTO_UPDATE_AUTOMAKE = 1.10
 DEB_AUTO_UPDATE_AUTOCONF = 2.60
 
+ifneq ($(DEB_MAINTAINER_BUILD),)
+  # Maintainer mode build, enable optional operations
+  DEB_COPYRIGHT_CHECK = yes
+  DEB_AUTO_UPDATE_DEBIAN_CONTROL = yes
+endif
+
 # See debian/README.cdbs-tweaks for info on local overrides
 include debian/cdbs/1/rules/upstream-tarball.mk
 include debian/cdbs/1/rules/copyright-check.mk
