@@ -39,6 +39,8 @@
 	doc/listener_auth1.jpg
 	doc/listener_auth2.jpg
 	doc/listener_auth3.jpg
+	doc/masterslave.png
+	doc/relay.png
 	doc/stats1.jpg
 	doc/style.css
 	doc/win32_section1.html
@@ -56,6 +58,7 @@
 	m4/xiph_compiler.m4
 	m4/xiph_curl.m4
 	m4/xiph_net.m4
+	m4/xiph_openssl.m4
 	m4/xiph_types.m4
 	m4/xiph_xml2.m4
 	mkinstalldirs
@@ -156,12 +159,16 @@ UNKNOWN [2000-2004, Jack Moffitt <jack@xiph.org]: src/admin.c
 	src/format.h
 	src/format_flac.c
 	src/format_flac.h
+	src/format_kate.c
+	src/format_kate.h
 	src/format_midi.c
 	src/format_midi.h
 	src/format_mp3.c
 	src/format_mp3.h
 	src/format_ogg.c
 	src/format_ogg.h
+	src/format_skeleton.c
+	src/format_skeleton.h
 	src/format_speex.h
 	src/format_theora.c
 	src/format_theora.h
@@ -175,7 +182,6 @@ UNKNOWN [2000-2004, Jack Moffitt <jack@xiph.org]: src/admin.c
 	src/logging.h
 	src/main.c
 	src/md5.h
-	src/os.h
 	src/refbuf.c
 	src/refbuf.h
 	src/sighandler.c
@@ -230,15 +236,15 @@ LGPL-2+ [1999-2000 the icecast team <team@icecast.org>]: src/thread/thread.c
 	src/thread/thread.h
 UNKNOWN [2000-2004, Jack Moffitt <jack@xiph.org>]: src/auth_url.c
 	src/format_speex.c
-GENERATED FILE [2003 Free Software Foundation, Inc]: configure
+GENERATED FILE [1992-1996, 1998-2001]: configure
 GPL GENERATED FILE [1996-1997, 1999-2000, 2002 Free Software Foundation, Inc]: missing
-GPL [1996-2002]: aclocal.m4
-GPL-2+ GENERATED FILE [1996-2001, 2003-2005]: ltmain.sh
+GPL-2+ GENERATED FILE [1996-2001, 2003-2006]: ltmain.sh
 GPL-2+ [1999 the icecast team]: src/net/sock.h
 LGPL-2+ [1999 the icecast team <team@icecast.org>]: src/net/resolver.c
 LGPL-2+ [1999 the icecast team]: src/net/sock.c
 Public domain [2000-2004, Jack Moffitt <jack@xiph.org / is claimed]: src/md5.c
 UNKNOWN [1989, 1991 Free Software Foundation, Inc / the software, and]: COPYING
 UNKNOWN [1995 by Sam Rushing <rushing@nightmare.com>]: src/avl/avl.h
+UNKNOWN [1996-2004]: aclocal.m4
 UNKNOWN [notice and this permission / notice appear in all / 1995-1997 by Sam Rushing <rushing@nightmare.com>]: src/avl/avl.c
 UNKNOWN [notice appear in all copies and that both that / 1991 by the Massachusetts Institute of Technology / notice and this permission notice appear in supporting]: install-sh

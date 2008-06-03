@@ -1,3 +1,14 @@
+icecast2 (2.3.2-1) unstable; urgency=low
+
+  * New upstream release
+  * Dropped patches applied upstream
+  * Added Short-Description and $network dependency to 
+    init script
+  * Changed build dep from libcurl3-gnutls-dev to libcurl4-gnutls-dev
+  * Updated debian/copyright_hints
+
+ -- Romain Beauxis <toots@rastageeks.org>  Tue, 03 Jun 2008 10:16:43 -0400
+
 icecast2 (2.3.1-7) unstable; urgency=low
 
   [ Romain Beauxis ]
