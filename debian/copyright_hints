@@ -39,7 +39,6 @@
 	doc/listener_auth1.jpg
 	doc/listener_auth2.jpg
 	doc/listener_auth3.jpg
-	doc/masterslave.png
 	doc/relay.png
 	doc/stats1.jpg
 	doc/style.css
@@ -48,7 +47,6 @@
 	doc/win32_section3.html
 	doc/windowtitle.jpg
 	examples/Makefile.am
-	examples/icecast_auth-1.0.tar.gz
 	icecast.spec
 	m4/acx_pthread.m4
 	m4/ogg.m4
@@ -137,7 +135,6 @@
 	win32/res/Icecast2win.rc2
 	win32/res/Makefile.am
 	win32/resource.h
-	win32/running.bmp
 	win32/stopped.bmp
 UNKNOWN [2000-2004, Jack Moffitt <jack@xiph.org]: src/admin.c
 	src/admin.h
@@ -244,7 +241,10 @@ LGPL-2+ [1999 the icecast team <team@icecast.org>]: src/net/resolver.c
 LGPL-2+ [1999 the icecast team]: src/net/sock.c
 Public domain [2000-2004, Jack Moffitt <jack@xiph.org / is claimed]: src/md5.c
 UNKNOWN [1989, 1991 Free Software Foundation, Inc / the software, and]: COPYING
+UNKNOWN [1991 by the Massachusetts Institute of Technology]: install-sh
 UNKNOWN [1995 by Sam Rushing <rushing@nightmare.com>]: src/avl/avl.h
+UNKNOWN [1995-1997 by Sam Rushing <rushing@nightmare.com>]: src/avl/avl.c
 UNKNOWN [1996-2004]: aclocal.m4
-UNKNOWN [notice and this permission / notice appear in all / 1995-1997 by Sam Rushing <rushing@nightmare.com>]: src/avl/avl.c
-UNKNOWN [notice appear in all copies and that both that / 1991 by the Massachusetts Institute of Technology / notice and this permission notice appear in supporting]: install-sh
+UNKNOWN [=zO>u~9p]: doc/masterslave.png
+UNKNOWN [PE5 /  .'PEIV5 / W4PE5 / k IVBfIVPE kk 5]: win32/running.bmp
+UNKNOWN [cz9dwLUr>V51q[9[OOh4dK/M/+juxsE0YD*DsDnCj,G2h<K:W?TYTp*OT-r=[)@^sp=tuLt).G3=Z.?} / )E\.qc!G}SuH:>Xsc3pkH1k9!F$mm2(g|cmF]: examples/icecast_auth-1.0.tar.gz
