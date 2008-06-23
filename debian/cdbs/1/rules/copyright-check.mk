@@ -84,7 +84,7 @@ debian/stamp-copyright-check:
 			echo "To fix the situation please do the following:"; \
 			echo "  1) Investigate the above changes and update debian/copyright as needed"; \
 			echo "  2) Replace debian/copyright_hints with debian/copyright_newhints"; \
-			$(if $(DEB_COPYRIGHT_CHECK_STRICT),exit 1); \
+			$(if $(DEB_COPYRIGHT_CHECK_STRICT),exit 1,:); \
 		else \
 			echo 'No new copyright notices found - assuming no news is good news...'; \
 			rm -f debian/copyright_newhints; \
