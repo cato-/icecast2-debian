@@ -1,3 +1,10 @@
+icecast2 (2.3.2-2) unstable; urgency=low
+
+  * Update local cdbs snippets:
+    + Always do copyright-check, but only warn by default.
+
+ -- Jonas Smedegaard <dr@jones.dk>  Tue, 24 Jun 2008 00:47:34 +0200
+
 icecast2 (2.3.2-1) unstable; urgency=low
 
   * New upstream release

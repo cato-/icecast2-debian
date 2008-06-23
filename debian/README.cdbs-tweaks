@@ -74,9 +74,6 @@ New copyright-check rule
 
 Refuse to build if the source is found to contain different copyright
 info than earlier builds.
-Disabled by default, should be enabled by the maintainer before each upload.
-The relevant variables is:
- DEB_COPYRIGHT_CHECK = yes 
 
 
 

@@ -9,7 +9,7 @@ DEB_AUTO_UPDATE_AUTOCONF = 2.60
 
 ifneq ($(DEB_MAINTAINER_BUILD),)
   # Maintainer mode build, enable optional operations
-  DEB_COPYRIGHT_CHECK = yes
+  DEB_COPYRIGHT_CHECK_STRICT = yes
   DEB_AUTO_UPDATE_DEBIAN_CONTROL = yes
 endif
 
