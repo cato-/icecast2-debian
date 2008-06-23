@@ -2,7 +2,11 @@ icecast2 (2.3.2-2) unstable; urgency=low
 
   * Update local cdbs snippets:
     + Always do copyright-check, but only warn by default.
+    + Update dependency cleanup to strip cdbs 0.4.27 (not 0.4.27-1).
   * Update debian/copyright-hints.
+  * Bump debhelper compatibility level to 6.
+  * Semi-auto-update debian/control to update build-dependencies:
+      DEB_MAINTAINER_BUILD=yes fakeroot debian/rules clean
 
  -- Jonas Smedegaard <dr@jones.dk>  Tue, 24 Jun 2008 00:47:34 +0200
 
