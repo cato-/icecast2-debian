@@ -1,3 +1,9 @@
+icecast2 (2.3.2-3) UNRELEASED; urgency=low
+
+  * Cosmetic changes to debian/rules.
+
+ -- Jonas Smedegaard <dr@jones.dk>  Tue, 24 Jun 2008 01:17:23 +0200
+
 icecast2 (2.3.2-2) unstable; urgency=low
 
   * Update local cdbs snippets:

@@ -1,19 +1,18 @@
 #!/usr/bin/make -f
 # -*- mode: makefile; coding: utf-8 -*-
-# Copyright © 2004-2007 Jonas Smedegaard <dr@jones.dk>
+# Copyright © 2004-2008 Jonas Smedegaard <dr@jones.dk>
 
 DEB_AUTO_UPDATE_LIBTOOL = pre
 DEB_AUTO_UPDATE_ACLOCAL = 1.10
 DEB_AUTO_UPDATE_AUTOMAKE = 1.10
 DEB_AUTO_UPDATE_AUTOCONF = 2.60
 
-ifneq ($(DEB_MAINTAINER_BUILD),)
-  # Maintainer mode build, enable optional operations
+# See debian/README.cdbs-tweaks for info on local overrides
+ifneq (,$(DEB_MAINTAINER_BUILD))
+  # Enable stuff not policy compliant (eg. unsuitable for build daemons)
   DEB_COPYRIGHT_CHECK_STRICT = yes
   DEB_AUTO_UPDATE_DEBIAN_CONTROL = yes
 endif
-
-# See debian/README.cdbs-tweaks for info on local overrides
 include debian/cdbs/1/rules/upstream-tarball.mk
 include debian/cdbs/1/rules/copyright-check.mk
 include /usr/share/cdbs/1/rules/patchsys-quilt.mk
