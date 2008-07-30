@@ -8,7 +8,7 @@ DEB_AUTO_UPDATE_AUTOMAKE = 1.10
 DEB_AUTO_UPDATE_AUTOCONF = 2.60
 
 # See debian/README.cdbs-tweaks for info on local overrides
-ifneq (,$(DEB_MAINTAINER_BUILD))
+ifneq (,$(DEB_MAINTAINER_MODE))
   # Enable stuff not policy compliant (eg. unsuitable for build daemons)
   DEB_COPYRIGHT_CHECK_STRICT = yes
   DEB_AUTO_UPDATE_DEBIAN_CONTROL = yes
