@@ -2,17 +2,17 @@ Source: icecast2
 Section: sound
 Priority: optional
 Maintainer: Debian Icecast team <pkg-icecast-devel@lists.alioth.debian.org>
-Uploaders: Guillaume Pellerin <yomguy@altern.org>, Romain Beauxis <toots@rastageeks.org>, Ying-Chun Liu <grandpaul@gmail.com>, Jonas Smedegaard <dr@jones.dk>
-Build-Depends: cdbs (>= 0.4.39), autotools-dev, devscripts (>= 2.10.7), quilt, patchutils (>= 0.2.25), libtool, automake1.10, autoconf, dh-buildinfo, debhelper (>= 5.0.44), libogg-dev (>> 1.0.0), libvorbis-dev (>> 1.0.0), libxslt1-dev | libxslt-dev, libxml2-dev, libcurl4-gnutls-dev, libtheora-dev (>= 0.0.0.alpha7), libspeex-dev
+Uploaders: Guillaume Pellerin <yomguy@altern.org>, Romain Beauxis <toots@rastageeks.org>, Jonas Smedegaard <dr@jones.dk>
+Build-Depends: cdbs, cdbs (>= 0.4.39), devscripts (>= 2.10.7), quilt, patchutils (>= 0.2.25), libtool, automake1.10, autoconf, dh-buildinfo, cdbs (>= 0.4.53), debhelper (>= 7.0.1), libogg-dev (>> 1.0.0), libvorbis-dev (>> 1.0.0), libxslt1-dev | libxslt-dev, libxml2-dev, libcurl4-gnutls-dev, libtheora-dev (>= 0.0.0.alpha7), libspeex-dev
 Vcs-Svn: svn://svn.debian.org/svn/pkg-icecast/icecast2/trunk
 Vcs-Browser: http://svn.debian.org/wsvn/pkg-icecast/icecast2/trunk
-Standards-Version: 3.7.3
+Standards-Version: 3.8.2
 Homepage: http://www.icecast.org/
 
 Package: icecast2
 Architecture: any
-Depends: adduser, ${shlibs:Depends}
-Recommends: ices2
+Depends: adduser, ${shlibs:Depends}, ${misc:Depends}
+Suggests: ices2
 Description: Ogg Vorbis and MP3 streaming media server
  Icecast is a streaming media server which currently supports Ogg 
  Vorbis and MP3 audio streams. It can be used to create an Internet 

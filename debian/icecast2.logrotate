@@ -3,7 +3,9 @@
 	missingok
 	rotate 7
 	postrotate
-		invoke-rc.d --quiet icecast2 reload > /dev/null
+		if pgrep icecast2 >/dev/null; then
+			invoke-rc.d --quiet icecast2 reload > /dev/null
+		fi
 	endscript
 	compress
 	notifempty

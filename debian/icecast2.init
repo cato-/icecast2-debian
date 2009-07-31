@@ -60,8 +60,8 @@ case "$1" in
 	;;
   restart)
 	echo -n "Restarting $DESC: "
-	start-stop-daemon --stop --oknodo --quiet --exec $DAEMON
-	sleep 1
+	# Send TERM after 5 seconds, wait at most 30 seconds.
+	start-stop-daemon --stop --oknodo --retry TERM/5/0/30 --quiet --exec $DAEMON
 	start-stop-daemon --start --quiet --chuid $USERID:$GROUPID \
 		--exec $DAEMON -- -b -c $CONFIGFILE
 	echo "$NAME."

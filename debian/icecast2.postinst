@@ -40,7 +40,10 @@ if ! id icecast2 >/dev/null 2>&1; then
 fi
 
 chown -R icecast2: /var/log/icecast2 /etc/icecast2
-chmod -R ug=rw,o=,ug+X /etc/icecast2
+# Set all file readable by default
+chmod -R ug=rw,o=r,ugo+X /etc/icecast2
+# Tightened permissions for the config file
+chmod -R ug=rw,o=,ug+X /etc/icecast2/icecast.xml
 
 #DEBHELPER#
 

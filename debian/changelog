@@ -1,8 +1,28 @@
-icecast2 (2.3.2-3) UNRELEASED; urgency=low
+icecast2 (2.3.2-3) unstable; urgency=low
 
+  [ Jonas Smedegaard ]
   * Cosmetic changes to debian/rules.
 
- -- Jonas Smedegaard <dr@jones.dk>  Tue, 24 Jun 2008 01:17:23 +0200
+  [ Romain Beauxis ]
+  * Bumped standards version to 3.8.2
+  * Bumped compat to 7
+  * Removed inactive uploader.
+  * Added missing xspf.xsl. This file is missing
+    from upstream's 2.3.2 tarball.
+  Closes: #513398
+  * Added test for icecast2 running process in
+    logrotate's postrotate script.
+  Closes: #522703
+  * Relaxed non-config file permissions in /etc/icecast2
+  Closes: #519486
+  * Added retry option for icecast2's init.d restart action.
+  Closes: #533182
+  * Changed recommends on ices2 to suggests now that 
+    recommended packages are installed by default.
+  * Removed path in postrm script commands, see lintian 
+    warning 'command-with-path-in-maintainer-script'.
+
+ -- Romain Beauxis <toots@rastageeks.org>  Fri, 31 Jul 2009 02:50:37 +0200
 
 icecast2 (2.3.2-2) unstable; urgency=low
 
