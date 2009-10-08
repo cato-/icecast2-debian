@@ -1,3 +1,20 @@
+icecast2 (2.3.2-4) unstable; urgency=low
+
+  * Add README.Debian mentioning the use of Subversion, CDBS, quilt and
+    DEB_MAINTAINER_MODE.
+  * Update CDBS snippets:
+    + Add new snippet package-relations.mk.
+    + Consistently use underscore (not dash) in variables.
+    + Implement fail-source-not-repackaged rule in upstream-tarball.mk.
+    + Update URL to draft DEP5 format in copyright-check.mk output.
+  * Resolve, cleanup and apply CDBS-declared dependencies using
+    package-relations.mk.
+  * Build-depend on autotools-dev.
+  * Merge mutiple build-dependencies on cdbs. Closes: bug#550227, thanks
+    to Stefan Ritter.
+
+ -- Jonas Smedegaard <dr@jones.dk>  Thu, 08 Oct 2009 16:55:02 +0200
+
 icecast2 (2.3.2-3) unstable; urgency=low
 
   [ Jonas Smedegaard ]
