@@ -1,3 +1,11 @@
+icecast2 (2.3.2-5) unstable; urgency=low
+
+  * Added patch to fix a memory leak. 
+    Thanks to Gilles Pietri for reporting
+    and Jussi Kukkonen for providing a patch.
+
+ -- Romain Beauxis <toots@rastageeks.org>  Wed, 09 Dec 2009 09:55:58 -0600
+
 icecast2 (2.3.2-4) unstable; urgency=low
 
   * Add README.Debian mentioning the use of Subversion, CDBS, quilt and

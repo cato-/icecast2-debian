@@ -1,2 +1,3 @@
 1001_autotools_avoid_debian-subdir.patch
 1002_add_missing_xspf_file
+1003_fix_memory_leak.patch
