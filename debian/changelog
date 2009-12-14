@@ -1,10 +1,12 @@
-icecast2 (2.3.2-5) unstable; urgency=low
+icecast2 (2.3.2-5) unstable; urgency=high
 
   * Added patch to fix a memory leak. 
     Thanks to Gilles Pietri for reporting
     and Jussi Kukkonen for providing a patch.
+  * Bumped standards version to 3.8.3 
+  * Added doc-base registration.
 
- -- Romain Beauxis <toots@rastageeks.org>  Wed, 09 Dec 2009 09:55:58 -0600
+ -- Romain Beauxis <toots@rastageeks.org>  Mon, 14 Dec 2009 10:05:47 -0600
 
 icecast2 (2.3.2-4) unstable; urgency=low
 

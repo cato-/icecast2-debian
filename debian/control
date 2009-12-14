@@ -6,7 +6,7 @@ Uploaders: Guillaume Pellerin <yomguy@altern.org>, Romain Beauxis <toots@rastage
 Build-Depends: autotools-dev, devscripts (>= 2.10.7), quilt, patchutils (>= 0.2.25), libtool, automake1.10, autoconf, dh-buildinfo, cdbs (>= 0.4.53), debhelper (>= 7.0.1), libogg-dev (>> 1.0.0), libvorbis-dev (>> 1.0.0), libxslt1-dev | libxslt-dev, libxml2-dev, libcurl4-gnutls-dev, libtheora-dev (>= 0.0.0.alpha7), libspeex-dev
 Vcs-Svn: svn://svn.debian.org/svn/pkg-icecast/icecast2/trunk
 Vcs-Browser: http://svn.debian.org/wsvn/pkg-icecast/icecast2/trunk
-Standards-Version: 3.8.2
+Standards-Version: 3.8.3
 Homepage: http://www.icecast.org/
 
 Package: icecast2
