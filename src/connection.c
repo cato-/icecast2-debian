@@ -340,6 +340,8 @@ static void process_request_queue ()
             int pass_it = 1;
             char *ptr;
 
+            /* handle \n, \r\n and nsvcap which for some strange reason has
+             * EOL as \r\r\n */
             node->offset += len;
             client->refbuf->data [node->offset] = '\000';
             do
@@ -347,6 +349,8 @@ static void process_request_queue ()
                 if (node->shoutcast == 1)
                 {
                     /* password line */
+                    if (strstr (client->refbuf->data, "\r\r\n") != NULL)
+                        break;
                     if (strstr (client->refbuf->data, "\r\n") != NULL)
                         break;
                     if (strstr (client->refbuf->data, "\n") != NULL)
@@ -354,6 +358,12 @@ static void process_request_queue ()
                 }
                 /* stream_offset refers to the start of any data sent after the
                  * http style headers, we don't want to lose those */
+                ptr = strstr (client->refbuf->data, "\r\r\n\r\r\n");
+                if (ptr)
+                {
+                    node->stream_offset = (ptr+6) - client->refbuf->data;
+                    break;
+                }
                 ptr = strstr (client->refbuf->data, "\r\n\r\n");
                 if (ptr)
                 {
@@ -428,7 +438,7 @@ void connection_accept_loop(void)
             if (client_create (&client, con, NULL) < 0)
             {
                 global_unlock();
-                client_send_404 (client, "Icecast connection limit reached");
+                client_send_403 (client, "Icecast connection limit reached");
                 continue;
             }
             global_unlock();
@@ -505,7 +515,7 @@ int connection_complete_source (source_t *source, int response)
                 config_release_config();
                 if (response)
                 {
-                    client_send_404 (source->client, "Content-type not supported");
+                    client_send_403 (source->client, "Content-type not supported");
                     source->client = NULL;
                 }
                 WARN1("Content-type \"%s\" not supported, dropping source", contenttype);
@@ -525,7 +535,7 @@ int connection_complete_source (source_t *source, int response)
             config_release_config();
             if (response)
             {
-                client_send_404 (source->client, "internal format allocation problem");
+                client_send_403 (source->client, "internal format allocation problem");
                 source->client = NULL;
             }
             WARN1 ("plugin format failed for \"%s\"", source->mount);
@@ -556,7 +566,7 @@ int connection_complete_source (source_t *source, int response)
 
     if (response)
     {
-        client_send_404 (source->client, "too many sources connected");
+        client_send_403 (source->client, "too many sources connected");
         source->client = NULL;
     }
 
@@ -766,7 +776,7 @@ static void _handle_source_request (client_t *client, char *uri, int auth_style)
     }
     else
     {
-        client_send_404 (client, "Mountpoint in use");
+        client_send_403 (client, "Mountpoint in use");
         WARN1 ("Mountpoint %s in use", uri);
     }
 }
@@ -872,7 +882,7 @@ static void _handle_shoutcast_compatible (client_queue_t *node)
 
     if (node->shoutcast == 1)
     {
-        char *source_password, *ptr;
+        char *source_password, *ptr, *headers;
         mount_proxy *mountinfo = config_find_mount (config, config->shoutcast_mount);
 
         if (mountinfo && mountinfo->password)
@@ -882,9 +892,21 @@ static void _handle_shoutcast_compatible (client_queue_t *node)
         config_release_config();
 
         /* Get rid of trailing \r\n or \n after password */
-        ptr = strstr (client->refbuf->data, "\r\n");
-        if (ptr == NULL)
-            ptr = strstr (client->refbuf->data, "\n");
+        ptr = strstr (client->refbuf->data, "\r\r\n");
+        if (ptr)
+            headers = ptr+3;
+        else
+        {
+            ptr = strstr (client->refbuf->data, "\r\n");
+            if (ptr)
+                headers = ptr+2;
+            else
+            {
+                ptr = strstr (client->refbuf->data, "\n");
+                if (ptr)
+                    headers = ptr+1;
+            }
+        }
 
         if (ptr == NULL)
         {
@@ -901,14 +923,16 @@ static void _handle_shoutcast_compatible (client_queue_t *node)
             /* send this non-blocking but if there is only a partial write
              * then leave to header timeout */
             sock_write (client->con->sock, "OK2\r\n");
-            memset (client->refbuf->data, 0, client->refbuf->len);
+            node->offset -= (headers - client->refbuf->data);
+            memmove (client->refbuf->data, headers, node->offset+1);
             node->shoutcast = 2;
-            node->offset = 0;
             /* we've checked the password, now send it back for reading headers */
             _add_request_queue (node);
             free (source_password);
             return;
         }
+        else
+            INFO1 ("password does not match \"%s\"", client->refbuf->data);
         client_destroy (client);
         free (node);
         return;

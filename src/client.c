@@ -85,6 +85,14 @@ void client_destroy(client_t *client)
     if (client == NULL)
         return;
 
+    /* release the buffer now, as the buffer could be on the source queue
+     * and may of disappeared after auth completes */
+    if (client->refbuf)
+    {
+        refbuf_release (client->refbuf);
+        client->refbuf = NULL;
+    }
+
     if (release_client (client))
         return;
 
@@ -103,10 +111,6 @@ void client_destroy(client_t *client)
     global.clients--;
     stats_event_args (NULL, "clients", "%d", global.clients);
     global_unlock ();
-
-    /* drop ref counts if need be */
-    if (client->refbuf)
-        refbuf_release (client->refbuf);
 
     /* we need to free client specific format data (if any) */
     if (client->free_client_data)
@@ -186,14 +190,15 @@ void client_send_401(client_t *client) {
     fserve_add_client (client, NULL);
 }
 
-void client_send_403(client_t *client) {
-    int bytes = sock_write(client->con->sock, 
-            "HTTP/1.0 403 Forbidden\r\n"
-            "\r\n"
-            "Access restricted.\r\n");
-    if(bytes > 0) client->con->sent_bytes = bytes;
+void client_send_403(client_t *client, const char *reason)
+{
+    if (reason == NULL)
+        reason = "Forbidden";
+    snprintf (client->refbuf->data, PER_CLIENT_REFBUF_SIZE,
+            "HTTP/1.0 403 %s\r\n\r\n", reason);
     client->respcode = 403;
-    client_destroy(client);
+    client->refbuf->len = strlen (client->refbuf->data);
+    fserve_add_client (client, NULL);
 }
 
 
