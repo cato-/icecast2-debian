@@ -1,7 +1,7 @@
 dnl XIPH_PATH_CURL([ACTION-IF-FOUND [, ACTION-IF-NOT-FOUND]])
 dnl Test for libcurl, and define CURL_CFLAGS and CURL_LIBS
 dnl
-dnl $Id: xiph_curl.m4 9556 2005-07-10 14:24:08Z karl $
+dnl $Id: xiph_curl.m4 14776 2008-04-19 01:54:11Z karl $
 dnl
 AC_DEFUN([XIPH_PATH_CURL],
 [dnl 
@@ -9,7 +9,13 @@ dnl Get the cflags and libraries
 dnl
 AC_ARG_WITH(curl,
     AC_HELP_STRING([--with-curl=PFX],[Prefix where libcurl is installed (optional)]),
-    curl_prefix="$withval", curl_prefix="")
+    curl_prefix="$withval", curl_prefix="$CURL_PREFIX")
+
+if test "x$curl_prefix" = "xno"
+then
+  AC_MSG_RESULT([libcurl support disabled by request])
+else
+
 AC_ARG_WITH(curl-config,
     AC_HELP_STRING([--with-curl-config=curl-config],[Use curl-config to find libcurl]),
     CURL_CONFIG="$withval", [AC_PATH_PROGS(CURL_CONFIG, [curl-config], "")])
@@ -66,4 +72,7 @@ else
 fi
 CPPFLAGS="$xt_curl_CPPFLAGS"
 LIBS="$xt_curl_LIBS"
+fi
+AC_SUBST(CURL_CFLAGS)
+AC_SUBST(CURL_LIBS)
 ])

@@ -13,7 +13,7 @@
 #ifndef __SLAVE_H__
 #define __SLAVE_H__
 
-#include <thread/thread.h>
+#include "thread/thread.h"
 
 typedef struct _relay_server {
     char *server;
@@ -27,6 +27,7 @@ typedef struct _relay_server {
     int on_demand;
     int running;
     int cleanup;
+    time_t start;
     thread_type *thread;
     struct _relay_server *next;
 } relay_server;
@@ -34,9 +35,8 @@ typedef struct _relay_server {
 
 void slave_initialize(void);
 void slave_shutdown(void);
-void slave_recheck_mounts (void);
+void slave_update_all_mounts (void);
 void slave_rebuild_mounts (void);
-void slave_rescan (void);
 relay_server *relay_free (relay_server *relay);
 
 #endif  /* __SLAVE_H__ */

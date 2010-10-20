@@ -94,18 +94,17 @@ int xsltSaveResultToString(xmlChar **doc_txt_ptr, int * doc_txt_len, xmlDocPtr r
 static stylesheet_cache_t cache[CACHESIZE];
 static mutex_t xsltlock;
 
-void xslt_initialize()
+void xslt_initialize(void)
 {
-    xmlSubstituteEntitiesDefault(1);
-    xmlLoadExtDtdDefaultValue = 1;
-
     memset(cache, 0, sizeof(stylesheet_cache_t)*CACHESIZE);
     thread_mutex_create(&xsltlock);
+    xmlInitParser();
+    LIBXML_TEST_VERSION
     xmlSubstituteEntitiesDefault(1);
     xmlLoadExtDtdDefaultValue = 1;
 }
 
-void xslt_shutdown() {
+void xslt_shutdown(void) {
     int i;
 
     for(i=0; i < CACHESIZE; i++) {
@@ -116,10 +115,11 @@ void xslt_shutdown() {
     }
 
     thread_mutex_destroy (&xsltlock);
+    xmlCleanupParser();
     xsltCleanupGlobals();
 }
 
-static int evict_cache_entry() {
+static int evict_cache_entry(void) {
     int i, age=0, oldest=0;
 
     for(i=0; i < CACHESIZE; i++) {
@@ -160,7 +160,7 @@ static xsltStylesheetPtr xslt_get_stylesheet(const char *fn) {
                     xsltFreeStylesheet(cache[i].stylesheet);
 
                     cache[i].last_modified = file.st_mtime;
-                    cache[i].stylesheet = xsltParseStylesheetFile(fn);
+                    cache[i].stylesheet = xsltParseStylesheetFile (XMLSTR(fn));
                     cache[i].cache_age = time(NULL);
                 }
                 DEBUG1("Using cached sheet %i", i);
@@ -178,7 +178,7 @@ static xsltStylesheetPtr xslt_get_stylesheet(const char *fn) {
 
     cache[i].last_modified = file.st_mtime;
     cache[i].filename = strdup(fn);
-    cache[i].stylesheet = xsltParseStylesheetFile(fn);
+    cache[i].stylesheet = xsltParseStylesheetFile (XMLSTR(fn));
     cache[i].cache_age = time(NULL);
     return cache[i].stylesheet;
 }
@@ -189,6 +189,7 @@ void xslt_transform(xmlDocPtr doc, const char *xslfilename, client_t *client)
     xsltStylesheetPtr cur;
     xmlChar *string;
     int len, problem = 0;
+    const char *mediatype = NULL;
 
     xmlSetGenericErrorFunc ("", log_parse_failure);
     xsltSetGenericErrorFunc ("", log_parse_failure);
@@ -208,19 +209,37 @@ void xslt_transform(xmlDocPtr doc, const char *xslfilename, client_t *client)
 
     if (xsltSaveResultToString (&string, &len, res, cur) < 0)
         problem = 1;
-    thread_mutex_unlock(&xsltlock);
+
+    /* lets find out the content type to use */
+    if (cur->mediaType)
+        mediatype = (char *)cur->mediaType;
+    else
+    {
+        /* check method for the default, a missing method assumes xml */
+        if (cur->method && xmlStrcmp (cur->method, XMLSTR("html")) == 0)
+            mediatype = "text/html";
+        else
+            if (cur->method && xmlStrcmp (cur->method, XMLSTR("text")) == 0)
+                mediatype = "text/plain";
+            else
+                mediatype = "text/xml";
+    }
     if (problem == 0)
     {
-        const char *http = "HTTP/1.0 200 OK\r\nContent-Type: text/html\r\nContent-Length: ";
-        int buf_len = strlen (http) + 20 + len;
+        /* the 100 is to allow for the hardcoded headers */
+        unsigned int full_len = strlen (mediatype) + len + 100;
+        refbuf_t *refbuf = refbuf_new (full_len);
 
         if (string == NULL)
-            string = xmlStrdup ("");
+            string = xmlCharStrdup ("");
+        snprintf (refbuf->data, full_len,
+                "HTTP/1.0 200 OK\r\nContent-Type: %s\r\nContent-Length: %d\r\n\r\n%s",
+                mediatype, len, string);
+
         client->respcode = 200;
         client_set_queue (client, NULL);
-        client->refbuf = refbuf_new (buf_len);
-        len = snprintf (client->refbuf->data, buf_len, "%s%d\r\n\r\n%s", http, len, string);
-        client->refbuf->len = len;
+        client->refbuf = refbuf;
+        refbuf->len = strlen (refbuf->data);
         fserve_add_client (client, NULL);
         xmlFree (string);
     }
@@ -229,6 +248,7 @@ void xslt_transform(xmlDocPtr doc, const char *xslfilename, client_t *client)
         WARN1 ("problem applying stylesheet \"%s\"", xslfilename);
         client_send_404 (client, "XSLT problem");
     }
+    thread_mutex_unlock (&xsltlock);
     xmlFreeDoc(res);
 }
 

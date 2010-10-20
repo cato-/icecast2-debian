@@ -70,6 +70,7 @@ avl_tree_new (avl_key_compare_fun_type compare_fun,
   } else {
     avl_node * root = avl_node_new((void *)NULL, (avl_node *) NULL);
     if (!root) {
+      free (t);
       return NULL;
     } else {
       t->root = root;
@@ -821,14 +822,14 @@ avl_get_span_by_key (avl_tree * tree,
     /* search left */
     left = avl_get_prev (node);
     i = m;
-    while ((i > 0) && (tree->compare_fun (tree->compare_arg, key, left->key) == 0)) {
+    while (left && (i > 0) && (tree->compare_fun (tree->compare_arg, key, left->key) == 0)) {
       left = avl_get_prev (left);
       i = i - 1;
     }
     /* search right */
     right = avl_get_next (node);
     j = m;
-    while ((j <= tree->length) && (tree->compare_fun (tree->compare_arg, key, right->key) == 0)) {
+    while (right && (j <= tree->length) && (tree->compare_fun (tree->compare_arg, key, right->key) == 0)) {
       right = avl_get_next (right);
       j = j + 1;
     }
@@ -869,7 +870,7 @@ avl_get_span_by_two_keys (avl_tree * tree,
     avl_node * left;
     /* search left */
     left = avl_get_prev (low_node);
-    while ((i > 0) && (tree->compare_fun (tree->compare_arg, low_key, left->key) == 0)) {
+    while (left && (i > 0) && (tree->compare_fun (tree->compare_arg, low_key, left->key) == 0)) {
       left = avl_get_prev (left);
       i = i - 1;
     }
@@ -880,7 +881,7 @@ avl_get_span_by_two_keys (avl_tree * tree,
     avl_node * right;
     /* search right */
     right = avl_get_next (high_node);
-    while ((j <= tree->length) && (tree->compare_fun (tree->compare_arg, high_key, right->key) == 0)) {
+    while (right && (j <= tree->length) && (tree->compare_fun (tree->compare_arg, high_key, right->key) == 0)) {
       right = avl_get_next (right);
       j = j + 1;
     }

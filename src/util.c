@@ -40,7 +40,7 @@
 
 #include "cfgfile.h"
 #include "util.h"
-#include "os.h"
+#include "compat.h"
 #include "refbuf.h"
 #include "connection.h"
 #include "client.h"
@@ -58,7 +58,7 @@
  *           0 if no activity occurs
  *         < 0 for error.
  */
-int util_timed_wait_for_fd(int fd, int timeout)
+int util_timed_wait_for_fd(sock_t fd, int timeout)
 {
 #ifdef HAVE_POLL
     struct pollfd ufds;
@@ -84,7 +84,7 @@ int util_timed_wait_for_fd(int fd, int timeout)
 #endif
 }
 
-int util_read_header(int sock, char *buff, unsigned long len, int entire)
+int util_read_header(sock_t sock, char *buff, unsigned long len, int entire)
 {
     int read_bytes, ret;
     unsigned long pos;
@@ -140,7 +140,7 @@ char *util_get_extension(const char *path) {
         return ext+1;
 }
 
-int util_check_valid_extension(char *uri) {
+int util_check_valid_extension(const char *uri) {
     int    ret = 0;
     char    *p2;
 
@@ -263,12 +263,12 @@ static char safechars[256] = {
       0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
 };
 
-char *util_url_escape(char *src)
+char *util_url_escape (const char *src)
 {
     int len = strlen(src);
     /* Efficiency not a big concern here, keep the code simple/conservative */
     char *dst = calloc(1, len*3 + 1); 
-    unsigned char *source = src;
+    unsigned char *source = (unsigned char *)src;
     int i,j=0;
 
     for(i=0; i < len; i++) {
@@ -287,10 +287,10 @@ char *util_url_escape(char *src)
     return dst;
 }
 
-char *util_url_unescape(char *src)
+char *util_url_unescape (const char *src)
 {
     int len = strlen(src);
-    unsigned char *decoded;
+    char *decoded;
     int i;
     char *dst;
     int done = 0;
@@ -340,7 +340,7 @@ char *util_url_unescape(char *src)
  * escape from the webroot) or if it cannot be URI-decoded.
  * Caller should free the path.
  */
-char *util_normalise_uri(char *uri) {
+char *util_normalise_uri(const char *uri) {
     char *path;
 
     if(uri[0] != '/')
@@ -405,7 +405,7 @@ char *util_bin_to_hex(unsigned char *data, int len)
 }
 
 /* This isn't efficient, but it doesn't need to be */
-char *util_base64_encode(char *data)
+char *util_base64_encode(const char *data)
 {
     int len = strlen(data);
     char *out = malloc(len*4/3 + 4);
@@ -438,9 +438,10 @@ char *util_base64_encode(char *data)
     return result;
 }
 
-char *util_base64_decode(unsigned char *input)
+char *util_base64_decode(const char *data)
 {
-    int len = strlen(input);
+    const unsigned char *input = (const unsigned char *)data;
+    int len = strlen (data);
     char *out = malloc(len*3/4 + 5);
     char *result = out;
     signed char vals[4];
@@ -632,3 +633,58 @@ struct tm *localtime_r (const time_t *timep, struct tm *result)
      return result;
 }
 #endif
+
+
+/* helper function for converting a passed string in one character set to another
+ * we use libxml2 for this
+ */
+char *util_conv_string (const char *string, const char *in_charset, const char *out_charset)
+{
+    xmlCharEncodingHandlerPtr in, out;
+    char *ret = NULL;
+
+    if (string == NULL || in_charset == NULL || out_charset == NULL)
+        return NULL;
+
+    in  = xmlFindCharEncodingHandler (in_charset);
+    out = xmlFindCharEncodingHandler (out_charset);
+
+    if (in && out)
+    {
+        xmlBufferPtr orig = xmlBufferCreate ();
+        xmlBufferPtr utf8 = xmlBufferCreate ();
+        xmlBufferPtr conv = xmlBufferCreate ();
+
+        INFO2 ("converting metadata from %s to %s", in_charset, out_charset);
+        xmlBufferCCat (orig, string);
+        if (xmlCharEncInFunc (in, utf8, orig) > 0)
+        {
+            xmlCharEncOutFunc (out, conv, NULL);
+            if (xmlCharEncOutFunc (out, conv, utf8) >= 0)
+                ret = strdup ((const char *)xmlBufferContent (conv));
+        }
+        xmlBufferFree (orig);
+        xmlBufferFree (utf8);
+        xmlBufferFree (conv);
+    }
+    xmlCharEncCloseFunc (in);
+    xmlCharEncCloseFunc (out);
+
+    return ret;
+}
+
+
+int get_line(FILE *file, char *buf, size_t siz)
+{
+    if(fgets(buf, (int)siz, file)) {
+        size_t len = strlen(buf);
+        if(len > 0 && buf[len-1] == '\n') {
+            buf[--len] = 0;
+            if(len > 0 && buf[len-1] == '\r')
+                buf[--len] = 0;
+        }
+        return 1;
+    }
+    return 0;
+}
+

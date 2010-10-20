@@ -23,13 +23,14 @@
 #include <libxml/parser.h>
 #include <libxml/tree.h>
 
-#include <thread/thread.h>
-#include <avl/avl.h>
-#include <httpp/httpp.h>
-#include <net/sock.h>
+#include "thread/thread.h"
+#include "avl/avl.h"
+#include "httpp/httpp.h"
+#include "net/sock.h"
 
 #include "connection.h"
 
+#include "source.h"
 #include "global.h"
 #include "refbuf.h"
 #include "client.h"
@@ -48,8 +49,9 @@
 #define STATS_EVENT_INC     1
 #define STATS_EVENT_DEC     2
 #define STATS_EVENT_ADD     3
-#define STATS_EVENT_REMOVE  4
-#define STATS_EVENT_HIDDEN  5
+#define STATS_EVENT_SUB     4
+#define STATS_EVENT_REMOVE  5
+#define STATS_EVENT_HIDDEN  6
 
 typedef struct _event_queue_tag
 {
@@ -86,8 +88,8 @@ static int _compare_source_stats(void *a, void *b, void *arg);
 static int _free_stats(void *key);
 static int _free_source_stats(void *key);
 static void _add_event_to_queue(stats_event_t *event, event_queue_t *queue);
-static stats_node_t *_find_node(avl_tree *tree, char *name);
-static stats_source_t *_find_source(avl_tree *tree, char *source);
+static stats_node_t *_find_node(avl_tree *tree, const char *name);
+static stats_source_t *_find_source(avl_tree *tree, const char *source);
 static void _free_event(stats_event_t *event);
 static stats_event_t *_get_event_from_queue (event_queue_t *queue);
 
@@ -119,7 +121,7 @@ static void queue_global_event (stats_event_t *event)
     thread_mutex_unlock(&_global_event_mutex);
 }
 
-void stats_initialize()
+void stats_initialize(void)
 {
     _event_listeners = NULL;
 
@@ -139,7 +141,7 @@ void stats_initialize()
     _stats_thread_id = thread_create("Stats Thread", _stats_thread, NULL, THREAD_ATTACHED);
 }
 
-void stats_shutdown()
+void stats_shutdown(void)
 {
     int n;
 
@@ -182,7 +184,7 @@ void stats_shutdown()
     }
 }
 
-stats_t *stats_get_stats()
+stats_t *stats_get_stats(void)
 {
     /* lock global stats
     
@@ -200,9 +202,42 @@ void stats_event(const char *source, const char *name, const char *value)
 {
     stats_event_t *event;
 
+    if (value && xmlCheckUTF8 ((unsigned char *)value) == 0)
+    {
+        WARN2 ("seen non-UTF8 data, probably incorrect metadata (%s, %s)", name, value);
+        return;
+    }
     event = build_event (source, name, value);
     if (event)
         queue_global_event (event);
+}
+
+
+/* wrapper for stats_event, this takes a charset to convert from */
+void stats_event_conv(const char *mount, const char *name, const char *value, const char *charset)
+{
+    const char *metadata = value;
+    xmlBufferPtr conv = xmlBufferCreate ();
+
+    if (charset)
+    {
+        xmlCharEncodingHandlerPtr handle = xmlFindCharEncodingHandler (charset);
+
+        if (handle)
+        {
+            xmlBufferPtr raw = xmlBufferCreate ();
+            xmlBufferAdd (raw, (const xmlChar *)value, strlen (value));
+            if (xmlCharEncInFunc (handle, conv, raw) > 0)
+                metadata = (char *)xmlBufferContent (conv);
+            xmlBufferFree (raw);
+            xmlCharEncCloseFunc (handle);
+        }
+        else
+            WARN1 ("No charset found for \"%s\"", charset);
+    }
+
+    stats_event (mount, name, metadata);
+    xmlBufferFree (conv);
 }
 
 /* make stat hidden (non-zero). name can be NULL if it applies to a whole
@@ -244,7 +279,7 @@ void stats_event_args(const char *source, char *name, char *format, ...)
     stats_event(source, name, buf);
 }
 
-static char *_get_stats(char *source, char *name)
+static char *_get_stats(const char *source, const char *name)
 {
     stats_node_t *stats = NULL;
     stats_source_t *src = NULL;
@@ -268,7 +303,7 @@ static char *_get_stats(char *source, char *name)
     return value;
 }
 
-char *stats_get_value(char *source, char *name)
+char *stats_get_value(const char *source, const char *name)
 {
     return(_get_stats(source, name));
 }
@@ -298,6 +333,18 @@ void stats_event_add(const char *source, const char *name, unsigned long value)
     }
 }
 
+void stats_event_sub(const char *source, const char *name, unsigned long value)
+{
+    stats_event_t *event = build_event (source, name, NULL);
+    if (event)
+    {
+        event->value = malloc (16);
+        snprintf (event->value, 16, "%ld", value);
+        event->action = STATS_EVENT_SUB;
+        queue_global_event (event);
+    }
+}
+
 /* decrease the value in the provided stat by 1 */
 void stats_event_dec(const char *source, const char *name)
 {
@@ -313,7 +360,7 @@ void stats_event_dec(const char *source, const char *name)
 /* note: you must call this function only when you have exclusive access
 ** to the avl_tree
 */
-static stats_node_t *_find_node(avl_tree *stats_tree, char *name)
+static stats_node_t *_find_node(avl_tree *stats_tree, const char *name)
 {
     stats_node_t *stats;
     avl_node *node;
@@ -340,7 +387,7 @@ static stats_node_t *_find_node(avl_tree *stats_tree, char *name)
 /* note: you must call this function only when you have exclusive access
 ** to the avl_tree
 */
-static stats_source_t *_find_source(avl_tree *source_tree, char *source)
+static stats_source_t *_find_source(avl_tree *source_tree, const char *source)
 {
     stats_source_t *stats;
     avl_node *node;
@@ -542,13 +589,21 @@ void stats_event_time (const char *mount, const char *name)
 }
 
 
+void stats_global (ice_config_t *config)
+{
+    stats_event (NULL, "server_id", config->server_id);
+    stats_event (NULL, "host", config->hostname);
+    stats_event (NULL, "location", config->location);
+    stats_event (NULL, "admin", config->admin);
+}
+
+
 static void *_stats_thread(void *arg)
 {
     stats_event_t *event;
     stats_event_t *copy;
     event_listener_t *listener;
 
-    stats_event (NULL, "server", ICECAST_VERSION_STRING);
     stats_event_time (NULL, "server_start");
 
     /* global currently active stats */
@@ -556,6 +611,7 @@ static void *_stats_thread(void *arg)
     stats_event (NULL, "connections", "0");
     stats_event (NULL, "sources", "0");
     stats_event (NULL, "stats", "0");
+    stats_event (NULL, "listeners", "0");
 
     /* global accumulating stats */
     stats_event (NULL, "client_connections", "0");
@@ -573,6 +629,8 @@ static void *_stats_thread(void *arg)
             event = _get_event_from_queue (&_global_event_queue);
             thread_mutex_unlock(&_global_event_mutex);
 
+            if (event == NULL)
+                continue;
             event->next = NULL;
 
             thread_mutex_lock(&_stats_mutex);
@@ -856,8 +914,8 @@ static xmlNodePtr _find_xml_node(char *mount, source_xml_t **list, xmlNodePtr ro
     /* build node */
     node = (source_xml_t *)malloc(sizeof(source_xml_t));
     node->mount = strdup(mount);
-    node->node = xmlNewChild(root, NULL, "source", NULL);
-    xmlSetProp(node->node, "mount", mount);
+    node->node = xmlNewChild (root, NULL, XMLSTR("source"), NULL);
+    xmlSetProp (node->node, XMLSTR("mount"), XMLSTR(mount));
     node->next = NULL;
 
     /* add node */
@@ -876,8 +934,9 @@ void stats_transform_xslt(client_t *client, const char *uri)
 {
     xmlDocPtr doc;
     char *xslpath = util_get_path_from_normalised_uri (uri);
+    const char *mount = httpp_get_query_param (client->parser, "mount");
 
-    stats_get_xml(&doc, 0);
+    stats_get_xml(&doc, 0, mount);
 
     xslt_transform(doc, xslpath, client);
 
@@ -885,7 +944,7 @@ void stats_transform_xslt(client_t *client, const char *uri)
     free (xslpath);
 }
 
-void stats_get_xml(xmlDocPtr *doc, int show_hidden)
+void stats_get_xml(xmlDocPtr *doc, int show_hidden, const char *show_mount)
 {
     stats_event_t *event;
     event_queue_t queue;
@@ -896,8 +955,8 @@ void stats_get_xml(xmlDocPtr *doc, int show_hidden)
     event_queue_init (&queue);
     _dump_stats_to_queue (&queue);
 
-    *doc = xmlNewDoc("1.0");
-    node = xmlNewDocNode(*doc, NULL, "icestats", NULL);
+    *doc = xmlNewDoc (XMLSTR("1.0"));
+    node = xmlNewDocNode(*doc, NULL, XMLSTR("icestats"), NULL);
     xmlDocSetRootElement(*doc, node);
 
     event = _get_event_from_queue(&queue);
@@ -905,16 +964,24 @@ void stats_get_xml(xmlDocPtr *doc, int show_hidden)
     {
         if (event->hidden <= show_hidden)
         {
-            xmlChar *name, *value;
-            name = xmlEncodeEntitiesReentrant (*doc, event->name);
-            value = xmlEncodeEntitiesReentrant (*doc, event->value);
-            srcnode = node;
-            if (event->source) {
-                srcnode = _find_xml_node(event->source, &src_nodes, node);
-            }
-            xmlNewChild(srcnode, NULL, name, value);
-            xmlFree (value);
-            xmlFree (name);
+            do
+            {
+                xmlChar *name, *value;
+                name = xmlEncodeEntitiesReentrant (*doc, XMLSTR(event->name));
+                value = xmlEncodeEntitiesReentrant (*doc, XMLSTR(event->value));
+                srcnode = node;
+                if (event->source)
+                {
+                    if (show_mount && strcmp (event->source, show_mount) != 0)
+                        break;
+                    srcnode = _find_xml_node(event->source, &src_nodes, node);
+                }
+                else
+                    srcnode = node;
+                xmlNewChild(srcnode, NULL, XMLSTR(name), XMLSTR(value));
+                xmlFree (value);
+                xmlFree (name);
+            } while (0);
         }
 
         _free_event(event);
@@ -943,18 +1010,18 @@ void stats_sendxml(client_t *client)
     event_queue_init (&queue);
     _dump_stats_to_queue (&queue);
 
-    doc = xmlNewDoc("1.0");
-    node = xmlNewDocNode(doc, NULL, "icestats", NULL);
+    doc = xmlNewDoc (XMLSTR("1.0"));
+    node = xmlNewDocNode (doc, NULL, XMLSTR("icestats"), NULL);
     xmlDocSetRootElement(doc, node);
 
 
     event = _get_event_from_queue(&queue);
     while (event) {
         if (event->source == NULL) {
-            xmlNewChild(node, NULL, event->name, event->value);
+            xmlNewChild (node, NULL, XMLSTR(event->name), XMLSTR(event->value));
         } else {
             srcnode = _find_xml_node(event->source, &src_nodes, node);
-            xmlNewChild(srcnode, NULL, event->name, event->value);
+            xmlNewChild (srcnode, NULL, XMLSTR(event->name), XMLSTR(event->value));
         }
 
         _free_event(event);
@@ -1027,3 +1094,76 @@ static void _free_event(stats_event_t *event)
     if (event->value) free(event->value);
     free(event);
 }
+
+
+refbuf_t *stats_get_streams (void)
+{
+#define STREAMLIST_BLKSIZE  4096
+    avl_node *node;
+    unsigned int remaining = STREAMLIST_BLKSIZE;
+    refbuf_t *start = refbuf_new (remaining), *cur = start;
+    char *buffer = cur->data;
+
+    /* now the stats for each source */
+    thread_mutex_lock (&_stats_mutex);
+    node = avl_get_first(_stats.source_tree);
+    while (node)
+    {
+        int ret;
+        stats_source_t *source = (stats_source_t *)node->key;
+
+        if (source->hidden == 0)
+        {
+            if (remaining <= strlen (source->source) + 3)
+            {
+                cur->len = STREAMLIST_BLKSIZE - remaining;
+                cur->next = refbuf_new (STREAMLIST_BLKSIZE);
+                remaining = STREAMLIST_BLKSIZE;
+                cur = cur->next;
+                buffer = cur->data;
+            }
+            ret = snprintf (buffer, remaining, "%s\r\n", source->source);
+            if (ret > 0)
+            {
+                buffer += ret;
+                remaining -= ret;
+            }
+        }
+        node = avl_get_next(node);
+    }
+    thread_mutex_unlock (&_stats_mutex);
+    cur->len = STREAMLIST_BLKSIZE - remaining;
+    return start;
+}
+
+
+
+/* This removes any source stats from virtual mountpoints, ie mountpoints
+ * where no source_t exists. This function requires the global sources lock
+ * to be held before calling.
+ */
+void stats_clear_virtual_mounts (void)
+{
+    avl_node *snode;
+
+    thread_mutex_lock (&_stats_mutex);
+    snode = avl_get_first(_stats.source_tree);
+    while (snode)
+    {
+        stats_source_t *src = (stats_source_t *)snode->key;
+        source_t *source = source_find_mount_raw (src->source);
+
+        if (source == NULL)
+        {
+            /* no source_t is reserved so remove them now */
+            snode = avl_get_next (snode);
+            DEBUG1 ("releasing %s stats", src->source);
+            avl_delete (_stats.source_tree, src, _free_source_stats);
+            continue;
+        }
+
+        snode = avl_get_next (snode);
+    }
+    thread_mutex_unlock (&_stats_mutex);
+}
+

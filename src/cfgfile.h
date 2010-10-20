@@ -26,6 +26,9 @@ struct _mount_proxy;
 #include "avl/avl.h"
 #include "auth.h"
 #include "global.h"
+#include "connection.h"
+
+#define XMLSTR(str) ((xmlChar *)(str)) 
 
 typedef struct ice_config_dir_tag
 {
@@ -64,6 +67,7 @@ typedef struct _mount_proxy {
     unsigned int queue_size_limit;
     int hidden; /* Do we list this on the xsl pages */
     unsigned int source_timeout;  /* source timeout in seconds */
+    char *charset;  /* character set if not utf8 */
     int mp3_meta_interval; /* outgoing per-stream metadata interval */
 
     char *auth_type; /* Authentication type */
@@ -94,10 +98,13 @@ typedef struct _aliases {
     struct _aliases *next;
 }aliases;
 
-typedef struct {
+typedef struct _listener_t {
+    struct _listener_t *next;
     int port;
     char *bind_address;
     int shoutcast_compat;
+    char *shoutcast_mount;
+    int ssl;
 } listener_t;
 
 typedef struct ice_config_tag
@@ -131,8 +138,10 @@ typedef struct ice_config_tag
 
     char *hostname;
     int port;
+    char *mimetypes_fn;
 
-    listener_t listeners[MAX_LISTEN_SOCKETS];
+    listener_t *listen_sock;
+    unsigned int listen_sock_count;
 
     char *master_server;
     int master_server_port;
@@ -144,9 +153,13 @@ typedef struct ice_config_tag
 
     mount_proxy *mounts;
 
+    char *server_id;
     char *base_dir;
     char *log_dir;
     char *pidfile;
+    char *banfile;
+    char *allowfile;
+    char *cert_file;
     char *webroot_dir;
     char *adminroot_dir;
     aliases *aliases;
@@ -180,8 +193,10 @@ int config_parse_file(const char *filename, ice_config_t *configuration);
 int config_initial_parse_file(const char *filename);
 int config_parse_cmdline(int arg, char **argv);
 void config_set_config(ice_config_t *config);
+listener_t *config_clear_listener (listener_t *listener);
 void config_clear(ice_config_t *config);
 mount_proxy *config_find_mount (ice_config_t *config, const char *mount);
+listener_t *config_get_listen_sock (ice_config_t *config, connection_t *con);
 
 int config_rehash(void);
 

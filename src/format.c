@@ -26,7 +26,9 @@
 #ifdef HAVE_STRINGS_H
 # include <strings.h>
 #endif
-#include <time.h>
+#ifdef HAVE_SYS_TYPES_H
+# include <sys/types.h>
+#endif
 
 #include "connection.h"
 #include "refbuf.h"
@@ -52,12 +54,16 @@
 static int format_prepare_headers (source_t *source, client_t *client);
 
 
-format_type_t format_get_type(char *contenttype)
+format_type_t format_get_type (const char *contenttype)
 {
     if(strcmp(contenttype, "application/x-ogg") == 0)
         return FORMAT_TYPE_OGG; /* Backwards compatibility */
     else if(strcmp(contenttype, "application/ogg") == 0)
         return FORMAT_TYPE_OGG; /* Now blessed by IANA */
+    else if(strcmp(contenttype, "audio/ogg") == 0)
+        return FORMAT_TYPE_OGG;
+    else if(strcmp(contenttype, "video/ogg") == 0)
+        return FORMAT_TYPE_OGG;
     else
         /* We default to the Generic format handler, which
            can handle many more formats than just mp3 */
@@ -93,15 +99,17 @@ static void find_client_start (source_t *source, client_t *client)
 {
     refbuf_t *refbuf = source->burst_point;
 
-    /* we only want to attempt a burst at connection time, not midstream */
-    if (client->intro_offset == -1)
+    /* we only want to attempt a burst at connection time, not midstream
+     * however streams like theora may not have the most recent page marked as
+     * a starting point, so look for one from the burst point */
+    if (client->intro_offset == -1 && source->stream_data_tail
+            && source->stream_data_tail->sync_point)
         refbuf = source->stream_data_tail;
     else
     {
-        long size = 0;
+        size_t size = client->intro_offset;
         refbuf = source->burst_point;
-        size = client->intro_offset;
-        while (size > 0 && refbuf->next)
+        while (size > 0 && refbuf && refbuf->next)
         {
             size -= refbuf->len;
             refbuf = refbuf->next;
@@ -126,7 +134,7 @@ static void find_client_start (source_t *source, client_t *client)
 static int get_file_data (FILE *intro, client_t *client)
 {
     refbuf_t *refbuf = client->refbuf;
-    int bytes;
+    size_t bytes;
 
     if (intro == NULL || fseek (intro, client->intro_offset, SEEK_SET) < 0)
         return 0;
@@ -134,7 +142,7 @@ static int get_file_data (FILE *intro, client_t *client)
     if (bytes == 0)
         return 0;
 
-    refbuf->len = bytes;
+    refbuf->len = (unsigned int)bytes;
     return 1;
 }
 
@@ -199,13 +207,16 @@ int format_check_http_buffer (source_t *source, client_t *client)
     {
         DEBUG0("processing pending client headers");
 
-        client->respcode = 200;
         if (format_prepare_headers (source, client) < 0)
         {
             ERROR0 ("internal problem, dropping client");
             client->con->error = 1;
             return -1;
         }
+        client->respcode = 200;
+        stats_event_inc (NULL, "listeners");
+        stats_event_inc (NULL, "listener_connections");
+        stats_event_inc (source->mount, "listener_connections");
     }
 
     if (client->pos == refbuf->len)
@@ -267,6 +278,7 @@ static int format_prepare_headers (source_t *source, client_t *client)
     int bytes;
     int bitrate_filtered = 0;
     avl_node *node;
+    ice_config_t *config;
 
     remaining = client->refbuf->len;
     ptr = client->refbuf->data;
@@ -336,7 +348,14 @@ static int format_prepare_headers (source_t *source, client_t *client)
     }
     avl_tree_unlock(source->parser->vars);
 
-    bytes = snprintf (ptr, remaining, "Server: %s\r\n", ICECAST_VERSION_STRING);
+    config = config_get_config();
+    bytes = snprintf (ptr, remaining, "Server: %s\r\n", config->server_id);
+    config_release_config();
+    remaining -= bytes;
+    ptr += bytes;
+
+    /* prevent proxy servers from caching */
+    bytes = snprintf (ptr, remaining, "Cache-Control: no-cache\r\n");
     remaining -= bytes;
     ptr += bytes;
 

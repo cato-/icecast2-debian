@@ -10,15 +10,12 @@
  *                      and others (see AUTHORS for details).
  */
 
-#ifndef __AUTH_URL_H__
-#define __AUTH_URL_H__
 
-#ifdef HAVE_CONFIG_H
-#include <config.h>
-#endif
+#ifndef __FORMAT_KATE_H
+#define __FORMAT_KATE_H
 
-int auth_get_url_auth (auth_t *authenticator, config_options_t *options);
+#include "format_ogg.h"
 
-#endif
+ogg_codec_t *initial_kate_page (format_plugin_t *plugin, ogg_page *page);
 
-
+#endif /* __FORMAT_KATE_H */
