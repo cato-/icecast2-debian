@@ -13,6 +13,7 @@
 #ifndef __STATS_H__
 #define __STATS_H__
 
+#include "cfgfile.h"
 #include "connection.h"
 #include "httpp/httpp.h"
 #include "client.h"
@@ -70,15 +71,21 @@ typedef struct _stats_tag
 
 } stats_t;
 
-void stats_initialize();
-void stats_shutdown();
+void stats_initialize(void);
+void stats_shutdown(void);
 
-stats_t *stats_get_stats();
+void stats_global(ice_config_t *config);
+stats_t *stats_get_stats(void);
+refbuf_t *stats_get_streams (void);
+void stats_clear_virtual_mounts (void);
 
 void stats_event(const char *source, const char *name, const char *value);
+void stats_event_conv(const char *mount, const char *name,
+        const char *value, const char *charset);
 void stats_event_args(const char *source, char *name, char *format, ...);
 void stats_event_inc(const char *source, const char *name);
 void stats_event_add(const char *source, const char *name, unsigned long value);
+void stats_event_sub(const char *source, const char *name, unsigned long value);
 void stats_event_dec(const char *source, const char *name);
 void stats_event_hidden (const char *source, const char *name, int hidden);
 void stats_event_time (const char *mount, const char *name);
@@ -88,12 +95,8 @@ void stats_callback (client_t *client, void *notused);
 
 void stats_transform_xslt(client_t *client, const char *uri);
 void stats_sendxml(client_t *client);
-void stats_get_xml(xmlDocPtr *doc, int show_hidden);
-char *stats_get_value(char *source, char *name);
+void stats_get_xml(xmlDocPtr *doc, int show_hidden, const char *show_mount);
+char *stats_get_value(const char *source, const char *name);
 
 #endif  /* __STATS_H__ */
-
-
-
-
 

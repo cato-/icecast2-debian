@@ -1,5 +1,5 @@
 <xsl:stylesheet xmlns:xsl = "http://www.w3.org/1999/XSL/Transform" version = "1.0" >
-<xsl:output omit-xml-declaration="no" method="xml" doctype-public="-//W3C//DTD XHTML 1.0 Strict//EN" doctype-system="http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd" indent="yes" encoding="UTF-8" />
+<xsl:output omit-xml-declaration="no" method="html" doctype-public="-//W3C//DTD XHTML 1.0 Strict//EN" doctype-system="http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd" indent="yes" encoding="UTF-8" />
 <xsl:template match = "/icestats" >
 <html>
 <head>
@@ -7,7 +7,7 @@
 <link rel="stylesheet" type="text/css" href="/style.css" />
 </head>
 <body topmargin="0" leftmargin="0" rightmargin="0" bottommargin="0">
-<img align="left" src="/icecast.png" /><h2><center>Icecast2 Admin</center></h2>
+<h2>Icecast2 Admin</h2>
 <br />
 
 <div class="roundcont">
@@ -17,9 +17,9 @@
 	<table border="0" cellpadding="1" cellspacing="3">
 	<tr>        
 	    <td align="center">
-	        <a class="nav" href="stats.xsl">Admin Home</a> |
-		    <a class="nav" href="listmounts.xsl">List Mountpoints</a> | 
-        	<a class="nav" href="moveclients.xsl">Move Listeners</a> | 
+	        <a class="nav" href="stats.xsl">Admin Home</a>
+		    <a class="nav" href="listmounts.xsl">List Mountpoints</a>
+        	<a class="nav" href="moveclients.xsl">Move Listeners</a>
         	<a class="nav" href="/status.xsl">Index</a>
 	    </td></tr>
 	</table>

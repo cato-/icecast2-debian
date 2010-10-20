@@ -15,6 +15,11 @@
 
 #include <sys/types.h>
 #include <time.h>
+#ifdef HAVE_OPENSSL
+#include <openssl/ssl.h>
+#include <openssl/err.h>
+#endif
+
 #include "compat.h"
 #include "httpp/httpp.h"
 #include "thread/thread.h"
@@ -22,6 +27,7 @@
 
 struct _client_tag;
 struct source_tag;
+struct ice_config_tag;
 
 typedef struct connection_tag
 {
@@ -31,9 +37,15 @@ typedef struct connection_tag
     time_t discon_time;
     uint64_t sent_bytes;
 
-    int sock;
-    int serversock;
+    sock_t sock;
+    sock_t serversock;
     int error;
+
+#ifdef HAVE_OPENSSL
+    SSL *ssl;   /* SSL handler */
+#endif
+    int (*send)(struct connection_tag *handle, const void *buf, size_t len);
+    int (*read)(struct connection_tag *handle, void *buf, size_t len);
 
     char *ip;
     char *host;
@@ -43,6 +55,7 @@ typedef struct connection_tag
 void connection_initialize(void);
 void connection_shutdown(void);
 void connection_accept_loop(void);
+int  connection_setup_sockets (struct ice_config_tag *config);
 void connection_close(connection_t *con);
 connection_t *connection_create (sock_t sock, sock_t serversock, char *ip);
 int connection_complete_source (struct source_tag *source, int response);

@@ -1,5 +1,5 @@
 dnl xiph_compiler.m4
-dnl $Id: xiph_compiler.m4 8320 2004-11-30 20:36:09Z karl $
+dnl $Id: xiph_compiler.m4 14776 2008-04-19 01:54:11Z karl $
 
 dnl XIPH_FUNC_VA_COPY
 dnl Karl Heyes
@@ -178,9 +178,9 @@ AC_COMPILE_IFELSE([AC_LANG_PROGRAM(,[const char *x = __func__;])],
     [ AH_TEMPLATE([__func__], [Replace __func__ if not supported])
     AC_COMPILE_IFELSE([AC_LANG_PROGRAM([],[const char *x = __FUNCTION__;])],
         [ AC_DEFINE([__func__],[__FUNCTION__])
-        AC_MSG_RESULT([yes])],
-        [ AC_DEFINE([__func__],[""])
-        AC_MSG_RESULT([no])
+        AC_MSG_RESULT([Using __FUNCTION__])],
+        [ AC_DEFINE([__func__],["__FILE__"])
+        AC_MSG_RESULT([using __FILE__])
         ])
     ])
 ])dnl XIPH_C__FUNC__

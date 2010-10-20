@@ -10,21 +10,12 @@
  *                      and others (see AUTHORS for details).
  */
 
-#ifndef __OS_H__
-#define __OS_H__
 
-#ifdef _WIN32
-#include <windows.h>
-#else
-#include <unistd.h>
-#endif
+#ifndef __FORMAT_SKELETON_H
+#define __FORMAT_SKELETON_H
 
-#ifdef _WIN32
-#define PATH_SEPARATOR "\\"
-#define size_t int
-#define ssize_t int
-#else
-#define PATH_SEPARATOR "/"
-#endif
+#include "format_ogg.h"
 
-#endif  /* __OS_H__ */
+ogg_codec_t *initial_skeleton_page (format_plugin_t *plugin, ogg_page *page);
+
+#endif /* __FORMAT_SKELETON_H */

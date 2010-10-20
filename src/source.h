@@ -51,6 +51,7 @@ typedef struct source_tag
 
     unsigned long peak_listeners;
     unsigned long listeners;
+    unsigned long prev_listeners;
     long max_listeners;
     int yp_public;
     int fallback_override;
@@ -90,7 +91,7 @@ void source_free_source(source_t *source);
 void source_move_clients (source_t *source, source_t *dest);
 int source_remove_client(void *key);
 void source_main(source_t *source);
-void source_recheck_mounts (void);
+void source_recheck_mounts (int update_all);
 
 extern mutex_t move_clients_mutex;
 

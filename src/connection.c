@@ -17,14 +17,15 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <errno.h>
 #include <string.h>
-#include <time.h>
 #ifdef HAVE_POLL
 #include <sys/poll.h>
 #endif
+#include <sys/types.h>
+#include <sys/stat.h>
 
 #ifndef _WIN32
-#include <sys/time.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #else
@@ -34,7 +35,7 @@
 #define strncasecmp strnicmp
 #endif
 
-#include "os.h"
+#include "compat.h"
 
 #include "thread/thread.h"
 #include "avl/avl.h"
@@ -85,6 +86,7 @@ typedef struct client_queue_tag {
     int offset;
     int stream_offset;
     int shoutcast;
+    char *shoutcast_mount;
     struct client_queue_tag *next;
 } client_queue_t;
 
@@ -92,6 +94,14 @@ typedef struct _thread_queue_tag {
     thread_type *thread_id;
     struct _thread_queue_tag *next;
 } thread_queue_t;
+
+typedef struct
+{
+    char *filename;
+    time_t file_recheck;
+    time_t file_mtime;
+    avl_tree *contents;
+} cache_file_contents;
 
 static mutex_t _connection_mutex;
 static volatile unsigned long _current_id = 0;
@@ -103,9 +113,33 @@ static volatile client_queue_t *_con_queue = NULL, **_con_queue_tail = &_con_que
 static mutex_t _con_queue_mutex;
 static mutex_t _req_queue_mutex;
 
+static int ssl_ok;
+#ifdef HAVE_OPENSSL
+static SSL_CTX *ssl_ctx;
+#endif
+
+/* filtering client connection based on IP */
+cache_file_contents banned_ip, allowed_ip;
+
 rwlock_t _source_shutdown_rwlock;
 
 static void *_handle_connection(void *arg);
+
+static int compare_ip (void *arg, void *a, void *b)
+{
+    const char *ip = (const char *)a;
+    const char *pattern = (const char *)b;
+
+    return strcmp (pattern, ip);
+}
+
+
+static int free_filtered_ip (void*x)
+{
+    free (x);
+    return 1;
+}
+
 
 void connection_initialize(void)
 {
@@ -117,6 +151,16 @@ void connection_initialize(void)
     thread_mutex_create(&move_clients_mutex);
     thread_rwlock_create(&_source_shutdown_rwlock);
     thread_cond_create(&global.shutdown_cond);
+    _req_queue = NULL;
+    _req_queue_tail = &_req_queue;
+    _con_queue = NULL;
+    _con_queue_tail = &_con_queue;
+
+    banned_ip.contents = NULL;
+    banned_ip.file_mtime = 0;
+
+    allowed_ip.contents = NULL;
+    allowed_ip.file_mtime = 0;
 
     _initialized = 1;
 }
@@ -125,6 +169,12 @@ void connection_shutdown(void)
 {
     if (!_initialized) return;
     
+#ifdef HAVE_OPENSSL
+    SSL_CTX_free (ssl_ctx);
+#endif
+    if (banned_ip.contents)  avl_tree_free (banned_ip.contents, free_filtered_ip);
+    if (allowed_ip.contents) avl_tree_free (allowed_ip.contents, free_filtered_ip);
+ 
     thread_cond_destroy(&global.shutdown_cond);
     thread_rwlock_destroy(&_source_shutdown_rwlock);
     thread_mutex_destroy(&_con_queue_mutex);
@@ -146,6 +196,217 @@ static unsigned long _next_connection_id(void)
     return id;
 }
 
+
+#ifdef HAVE_OPENSSL
+static void get_ssl_certificate (ice_config_t *config)
+{
+    SSL_METHOD *method;
+    ssl_ok = 0;
+
+    SSL_load_error_strings();                /* readable error messages */
+    SSL_library_init();                      /* initialize library */
+
+    method = SSLv23_server_method();
+    ssl_ctx = SSL_CTX_new (method);
+
+    do
+    {
+        if (config->cert_file == NULL)
+            break;
+        if (SSL_CTX_use_certificate_file (ssl_ctx, config->cert_file, SSL_FILETYPE_PEM) <= 0)
+        {
+            WARN1 ("Invalid cert file %s", config->cert_file);
+            break;
+        }
+        if (SSL_CTX_use_PrivateKey_file (ssl_ctx, config->cert_file, SSL_FILETYPE_PEM) <= 0)
+        {
+            WARN1 ("Invalid private key file %s", config->cert_file);
+            break;
+        }
+        if (!SSL_CTX_check_private_key (ssl_ctx))
+        {
+            ERROR1 ("Invalid %s - Private key does not match cert public key", config->cert_file);
+            break;
+        }
+        ssl_ok = 1;
+        INFO1 ("SSL certificate found at %s", config->cert_file);
+        return;
+    } while (0);
+    INFO0 ("No SSL capability on any configured ports");
+}
+
+
+/* handlers for reading and writing a connection_t when there is ssl
+ * configured on the listening port
+ */
+static int connection_read_ssl (connection_t *con, void *buf, size_t len)
+{
+    int bytes = SSL_read (con->ssl, buf, len);
+
+    if (bytes < 0)
+    {
+        switch (SSL_get_error (con->ssl, bytes))
+        {
+            case SSL_ERROR_WANT_READ:
+            case SSL_ERROR_WANT_WRITE:
+                return -1;
+        }
+        con->error = 1;
+    }
+    return bytes;
+}
+
+static int connection_send_ssl (connection_t *con, const void *buf, size_t len)
+{
+    int bytes = SSL_write (con->ssl, buf, len);
+
+    if (bytes < 0)
+    {
+        switch (SSL_get_error (con->ssl, bytes))
+        {
+            case SSL_ERROR_WANT_READ:
+            case SSL_ERROR_WANT_WRITE:
+                return -1;
+        }
+        con->error = 1;
+    }
+    else
+        con->sent_bytes += bytes;
+    return bytes;
+}
+#else
+
+/* SSL not compiled in, so at least log it */
+static void get_ssl_certificate (ice_config_t *config)
+{
+    ssl_ok = 0;
+    INFO0 ("No SSL capability");
+}
+#endif /* HAVE_OPENSSL */
+
+
+/* handlers (default) for reading and writing a connection_t, no encrpytion
+ * used just straight access to the socket
+ */
+static int connection_read (connection_t *con, void *buf, size_t len)
+{
+    int bytes = sock_read_bytes (con->sock, buf, len);
+    if (bytes == 0)
+        con->error = 1;
+    if (bytes == -1 && !sock_recoverable (sock_error()))
+        con->error = 1;
+    return bytes;
+}
+
+static int connection_send (connection_t *con, const void *buf, size_t len)
+{
+    int bytes = sock_write_bytes (con->sock, buf, len);
+    if (bytes < 0)
+    {
+        if (!sock_recoverable (sock_error()))
+            con->error = 1;
+    }
+    else
+        con->sent_bytes += bytes;
+    return bytes;
+}
+
+
+/* function to handle the re-populating of the avl tree containing IP addresses
+ * for deciding whether a connection of an incoming request is to be dropped.
+ */
+static void recheck_ip_file (cache_file_contents *cache)
+{
+    time_t now = time(NULL);
+    if (now >= cache->file_recheck)
+    {
+        struct stat file_stat;
+        FILE *file = NULL;
+        int count = 0;
+        avl_tree *new_ips;
+        char line [MAX_LINE_LEN];
+
+        cache->file_recheck = now + 10;
+        if (cache->filename == NULL)
+        {
+            if (cache->contents)
+            {
+                avl_tree_free (cache->contents, free_filtered_ip);
+                cache->contents = NULL;
+            }
+            return;
+        }
+        if (stat (cache->filename, &file_stat) < 0)
+        {
+            WARN2 ("failed to check status of \"%s\": %s", cache->filename, strerror(errno));
+            return;
+        }
+        if (file_stat.st_mtime == cache->file_mtime)
+            return; /* common case, no update to file */
+
+        cache->file_mtime = file_stat.st_mtime;
+
+        file = fopen (cache->filename, "r");
+        if (file == NULL)
+        {
+            WARN2("Failed to open file \"%s\": %s", cache->filename, strerror (errno));
+            return;
+        }
+
+        new_ips = avl_tree_new (compare_ip, NULL);
+
+        while (get_line (file, line, MAX_LINE_LEN))
+        {
+            char *str;
+            if(!line[0] || line[0] == '#')
+                continue;
+            count++;
+            str = strdup (line);
+            if (str)
+                avl_insert (new_ips, str);
+        }
+        fclose (file);
+        INFO2 ("%d entries read from file \"%s\"", count, cache->filename);
+
+        if (cache->contents) avl_tree_free (cache->contents, free_filtered_ip);
+        cache->contents = new_ips;
+    }
+}
+
+
+/* return 0 if the passed ip address is not to be handled by icecast, non-zero otherwise */
+static int accept_ip_address (char *ip)
+{
+    void *result;
+
+    recheck_ip_file (&banned_ip);
+    recheck_ip_file (&allowed_ip);
+
+    if (banned_ip.contents)
+    {
+        if (avl_get_by_key (banned_ip.contents, ip, &result) == 0)
+        {
+            DEBUG1 ("%s is banned", ip);
+            return 0;
+        }
+    }
+    if (allowed_ip.contents)
+    {
+        if (avl_get_by_key (allowed_ip.contents, ip, &result) == 0)
+        {
+            DEBUG1 ("%s is allowed", ip);
+            return 1;
+        }
+        else
+        {
+            DEBUG1 ("%s is not allowed", ip);
+            return 0;
+        }
+    }
+    return 1;
+}
+
+
 connection_t *connection_create (sock_t sock, sock_t serversock, char *ip)
 {
     connection_t *con;
@@ -157,15 +418,30 @@ connection_t *connection_create (sock_t sock, sock_t serversock, char *ip)
         con->con_time = time(NULL);
         con->id = _next_connection_id();
         con->ip = ip;
+        con->read = connection_read;
+        con->send = connection_send;
     }
 
     return con;
 }
 
-static int wait_for_serversock(int timeout)
+/* prepare connection for interacting over a SSL connection
+ */
+void connection_uses_ssl (connection_t *con)
+{
+#ifdef HAVE_OPENSSL
+    con->read = connection_read_ssl;
+    con->send = connection_send_ssl;
+    con->ssl = SSL_new (ssl_ctx);
+    SSL_set_accept_state (con->ssl);
+    SSL_set_fd (con->ssl, con->sock);
+#endif
+}
+
+static sock_t wait_for_serversock(int timeout)
 {
 #ifdef HAVE_POLL
-    struct pollfd ufds[MAX_LISTEN_SOCKETS];
+    struct pollfd ufds [global.server_sockets];
     int i, ret;
 
     for(i=0; i < global.server_sockets; i++) {
@@ -176,10 +452,10 @@ static int wait_for_serversock(int timeout)
 
     ret = poll(ufds, global.server_sockets, timeout);
     if(ret < 0) {
-        return -2;
+        return SOCK_ERROR;
     }
     else if(ret == 0) {
-        return -1;
+        return SOCK_ERROR;
     }
     else {
         int dst;
@@ -190,35 +466,35 @@ static int wait_for_serversock(int timeout)
             {
                 if (ufds[i].revents & (POLLHUP|POLLERR))
                 {
-                    close (global.serversock[i]);
+                    sock_close (global.serversock[i]);
                     WARN0("Had to close a listening socket");
                 }
-                global.serversock[i] = -1;
+                global.serversock[i] = SOCK_ERROR;
             }
         }
         /* remove any closed sockets */
         for(i=0, dst=0; i < global.server_sockets; i++)
         {
-            if (global.serversock[i] == -1)
+            if (global.serversock[i] == SOCK_ERROR)
                 continue;
             if (i!=dst)
                 global.serversock[dst] = global.serversock[i];
             dst++;
         }
         global.server_sockets = dst;
-        return -1;
+        return SOCK_ERROR;
     }
 #else
     fd_set rfds;
     struct timeval tv, *p=NULL;
     int i, ret;
-    int max = -1;
+    sock_t max = SOCK_ERROR;
 
     FD_ZERO(&rfds);
 
     for(i=0; i < global.server_sockets; i++) {
         FD_SET(global.serversock[i], &rfds);
-        if(global.serversock[i] > max)
+        if (max == SOCK_ERROR || global.serversock[i] > max)
             max = global.serversock[i];
     }
 
@@ -230,50 +506,56 @@ static int wait_for_serversock(int timeout)
 
     ret = select(max+1, &rfds, NULL, NULL, p);
     if(ret < 0) {
-        return -2;
+        return SOCK_ERROR;
     }
     else if(ret == 0) {
-        return -1;
+        return SOCK_ERROR;
     }
     else {
         for(i=0; i < global.server_sockets; i++) {
             if(FD_ISSET(global.serversock[i], &rfds))
                 return global.serversock[i];
         }
-        return -1; /* Should be impossible, stop compiler warnings */
+        return SOCK_ERROR; /* Should be impossible, stop compiler warnings */
     }
 #endif
 }
 
 static connection_t *_accept_connection(void)
 {
-    int sock;
-    connection_t *con;
+    sock_t sock, serversock; 
     char *ip;
-    int serversock; 
 
     serversock = wait_for_serversock(100);
-    if(serversock < 0)
+    if (serversock == SOCK_ERROR)
         return NULL;
 
     /* malloc enough room for a full IP address (including ipv6) */
     ip = (char *)malloc(MAX_ADDR_LEN);
 
     sock = sock_accept(serversock, ip, MAX_ADDR_LEN);
-    if (sock >= 0)
+    if (sock != SOCK_ERROR)
     {
-        con = connection_create (sock, serversock, ip);
-        if (con == NULL)
-            free (ip);
+        connection_t *con = NULL;
+        /* Make any IPv4 mapped IPv6 address look like a normal IPv4 address */
+        if (strncmp (ip, "::ffff:", 7) == 0)
+            memmove (ip, ip+7, strlen (ip+7)+1);
 
-        return con;
+        if (accept_ip_address (ip))
+            con = connection_create (sock, serversock, ip);
+        if (con)
+            return con;
+        sock_close (sock);
     }
-
-    if (!sock_recoverable(sock_error()))
-        WARN2("accept() failed with error %d: %s", sock_error(), strerror(sock_error()));
-    
+    else
+    {
+        if (!sock_recoverable(sock_error()))
+        {
+            WARN2("accept() failed with error %d: %s", sock_error(), strerror(sock_error()));
+            thread_sleep (500000);
+        }
+    }
     free(ip);
-
     return NULL;
 }
 
@@ -307,13 +589,14 @@ static client_queue_t *_get_connection(void)
         if (_con_queue == NULL)
             _con_queue_tail = &_con_queue;
         thread_mutex_unlock (&_con_queue_mutex);
+        node->next = NULL;
     }
     return node;
 }
 
 
 /* run along queue checking for any data that has come in or a timeout */
-static void process_request_queue ()
+static void process_request_queue (void)
 {
     client_queue_t **node_ref = (client_queue_t **)&_req_queue;
     ice_config_t *config = config_get_config ();
@@ -381,20 +664,25 @@ static void process_request_queue ()
 
             if (pass_it)
             {
+                thread_mutex_lock (&_req_queue_mutex);
                 if ((client_queue_t **)_req_queue_tail == &(node->next))
                     _req_queue_tail = (volatile client_queue_t **)node_ref;
                 *node_ref = node->next;
                 node->next = NULL;
+                thread_mutex_unlock (&_req_queue_mutex);
                 _add_connection (node);
+                continue;
             }
         }
         else
         {
             if (len == 0 || client->con->error)
             {
+                thread_mutex_lock (&_req_queue_mutex);
                 if ((client_queue_t **)_req_queue_tail == &node->next)
                     _req_queue_tail = (volatile client_queue_t **)node_ref;
                 *node_ref = node->next;
+                thread_mutex_unlock (&_req_queue_mutex);
                 client_destroy (client);
                 free (node);
                 continue;
@@ -420,6 +708,11 @@ static void _add_request_queue (client_queue_t *node)
 void connection_accept_loop(void)
 {
     connection_t *con;
+    ice_config_t *config;
+
+    config = config_get_config ();
+    get_ssl_certificate (config);
+    config_release_config ();
 
     tid = thread_create ("connection thread", _handle_connection, NULL, THREAD_ATTACHED);
 
@@ -431,14 +724,16 @@ void connection_accept_loop(void)
         {
             client_queue_t *node;
             ice_config_t *config;
-            int i;
             client_t *client = NULL;
+            listener_t *listener;
 
             global_lock();
             if (client_create (&client, con, NULL) < 0)
             {
                 global_unlock();
                 client_send_403 (client, "Icecast connection limit reached");
+                /* don't be too eager as this is an imposed hard limit */
+                thread_sleep (400000);
                 continue;
             }
             global_unlock();
@@ -454,17 +749,19 @@ void connection_accept_loop(void)
             }
             node->client = client;
 
-            /* Check for special shoutcast compatability processing */
             config = config_get_config();
-            for (i = 0; i < global.server_sockets; i++)
+            listener = config_get_listen_sock (config, client->con);
+
+            if (listener)
             {
-                if (global.serversock[i] == con->serversock)
-                {
-                    if (config->listeners[i].shoutcast_compat)
-                        node->shoutcast = 1;
-                }
+                if (listener->shoutcast_compat)
+                    node->shoutcast = 1;
+                if (listener->ssl && ssl_ok)
+                    connection_uses_ssl (client->con);
+                if (listener->shoutcast_mount)
+                    node->shoutcast_mount = strdup (listener->shoutcast_mount);
             }
-            config_release_config(); 
+            config_release_config();
 
             sock_set_blocking (client->con->sock, SOCK_NONBLOCK);
             sock_set_nodelay (client->con->sock);
@@ -499,7 +796,7 @@ int connection_complete_source (source_t *source, int response)
 
     if (global.sources < config->source_limit)
     {
-        char *contenttype;
+        const char *contenttype;
         mount_proxy *mountinfo;
         format_type_t format_type;
 
@@ -548,10 +845,9 @@ int connection_complete_source (source_t *source, int response)
 
         source->running = 1;
         mountinfo = config_find_mount (config, source->mount);
-        if (mountinfo == NULL)
-            source_update_settings (config, source, mountinfo);
-        source_recheck_mounts ();
+        source_update_settings (config, source, mountinfo);
         config_release_config();
+        slave_rebuild_mounts();
 
         source->shutdown_rwlock = &_source_shutdown_rwlock;
         DEBUG0 ("source is ready to start");
@@ -575,10 +871,10 @@ int connection_complete_source (source_t *source, int response)
 
 
 static int _check_pass_http(http_parser_t *parser, 
-        char *correctuser, char *correctpass)
+        const char *correctuser, const char *correctpass)
 {
     /* This will look something like "Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==" */
-    char *header = httpp_getvar(parser, "authorization");
+    const char *header = httpp_getvar(parser, "authorization");
     char *userpass, *tmp;
     char *username, *password;
 
@@ -613,9 +909,9 @@ static int _check_pass_http(http_parser_t *parser,
     return 1;
 }
 
-static int _check_pass_icy(http_parser_t *parser, char *correctpass)
+static int _check_pass_icy(http_parser_t *parser, const char *correctpass)
 {
-    char *password;
+    const char *password;
 
     password = httpp_getvar(parser, HTTPP_VAR_ICYPASSWORD);
     if(!password)
@@ -627,9 +923,9 @@ static int _check_pass_icy(http_parser_t *parser, char *correctpass)
         return 1;
 }
 
-static int _check_pass_ice(http_parser_t *parser, char *correctpass)
+static int _check_pass_ice(http_parser_t *parser, const char *correctpass)
 {
-    char *password;
+    const char *password;
 
     password = httpp_getvar(parser, "ice-password");
     if(!password)
@@ -647,7 +943,7 @@ int connection_check_admin_pass(http_parser_t *parser)
     ice_config_t *config = config_get_config();
     char *pass = config->admin_password;
     char *user = config->admin_username;
-    char *protocol;
+    const char *protocol;
 
     if(!pass || !user) {
         config_release_config();
@@ -687,7 +983,7 @@ int connection_check_source_pass(http_parser_t *parser, const char *mount)
     char *user = "source";
     int ret;
     int ice_login = config->ice_login;
-    char *protocol;
+    const char *protocol;
 
     mount_proxy *mountinfo = config_find_mount (config, mount);
 
@@ -802,24 +1098,22 @@ static void _handle_stats_request (client_t *client, char *uri)
 
 static void _handle_get_request (client_t *client, char *passed_uri)
 {
-    int fileserve;
     int port;
-    int i;
     char *serverhost = NULL;
     int serverport = 0;
     aliases *alias;
     ice_config_t *config;
     char *uri = passed_uri;
+    listener_t *listen_sock;
 
     config = config_get_config();
-    fileserve = config->fileserve;
     port = config->port;
-    for(i = 0; i < global.server_sockets; i++) {
-        if(global.serversock[i] == client->con->serversock) {
-            serverhost = config->listeners[i].bind_address;
-            serverport = config->listeners[i].port;
-            break;
-        }
+
+    listen_sock = config_get_listen_sock (config, client->con);
+    if (listen_sock)
+    {
+        serverhost = listen_sock->bind_address;
+        serverport = listen_sock->port;
     }
     alias = config->aliases;
 
@@ -853,21 +1147,7 @@ static void _handle_get_request (client_t *client, char *passed_uri)
         if (uri != passed_uri) free (uri);
         return;
     }
-
-    /* Here we are parsing the URI request to see
-    ** if the extension is .xsl, if so, then process
-    ** this request as an XSLT request
-    */
-    if (util_check_valid_extension (uri) == XSLT_CONTENT)
-    {
-        /* If the file exists, then transform it, otherwise, write a 404 */
-        DEBUG0("Stats request, sending XSL transformed stats");
-        stats_transform_xslt (client, uri);
-        if (uri != passed_uri) free (uri);
-        return;
-    }
-
-    add_client (uri, client);
+    auth_add_listener (uri, client);
     if (uri != passed_uri) free (uri);
 }
 
@@ -880,10 +1160,15 @@ static void _handle_shoutcast_compatible (client_queue_t *node)
     char *shoutcast_mount;
     client_t *client = node->client;
 
+    if (node->shoutcast_mount)
+        shoutcast_mount = node->shoutcast_mount;
+    else
+        shoutcast_mount = config->shoutcast_mount;
+
     if (node->shoutcast == 1)
     {
         char *source_password, *ptr, *headers;
-        mount_proxy *mountinfo = config_find_mount (config, config->shoutcast_mount);
+        mount_proxy *mountinfo = config_find_mount (config, shoutcast_mount);
 
         if (mountinfo && mountinfo->password)
             source_password = strdup (mountinfo->password);
@@ -912,6 +1197,7 @@ static void _handle_shoutcast_compatible (client_queue_t *node)
         {
             client_destroy (client);
             free (source_password);
+            free (node->shoutcast_mount);
             free (node);
             return;
         }
@@ -922,7 +1208,7 @@ static void _handle_shoutcast_compatible (client_queue_t *node)
             client->respcode = 200;
             /* send this non-blocking but if there is only a partial write
              * then leave to header timeout */
-            sock_write (client->con->sock, "OK2\r\n");
+            sock_write (client->con->sock, "OK2\r\nicy-caps:11\r\n\r\n");
             node->offset -= (headers - client->refbuf->data);
             memmove (client->refbuf->data, headers, node->offset+1);
             node->shoutcast = 2;
@@ -934,10 +1220,13 @@ static void _handle_shoutcast_compatible (client_queue_t *node)
         else
             INFO1 ("password does not match \"%s\"", client->refbuf->data);
         client_destroy (client);
+        free (source_password);
+        free (node->shoutcast_mount);
         free (node);
         return;
     }
-    shoutcast_mount = strdup (config->shoutcast_mount);
+    /* actually make a copy as we are dropping the config lock */
+    shoutcast_mount = strdup (shoutcast_mount);
     config_release_config();
     /* Here we create a valid HTTP request based of the information
        that was passed in via the non-HTTP style protocol above. This
@@ -962,10 +1251,13 @@ static void _handle_shoutcast_compatible (client_queue_t *node)
         client->parser = parser;
         _handle_source_request (client, shoutcast_mount, SHOUTCAST_SOURCE_AUTH);
     }
-    else
+    else {
+        httpp_destroy (parser);
         client_destroy (client);
+    }
     free (http_compliant);
     free (shoutcast_mount);
+    free (node->shoutcast_mount);
     free (node);
     return;
 }
@@ -978,7 +1270,7 @@ static void _handle_shoutcast_compatible (client_queue_t *node)
 static void *_handle_connection(void *arg)
 {
     http_parser_t *parser;
-    char *rawuri, *uri;
+    const char *rawuri;
 
     while (global.running == ICE_RUNNING) {
 
@@ -1001,6 +1293,8 @@ static void *_handle_connection(void *arg)
             client->parser = parser;
             if (httpp_parse (parser, client->refbuf->data, node->offset))
             {
+                char *uri;
+
                 /* we may have more than just headers, so prepare for it */
                 if (node->stream_offset == node->offset)
                     client->refbuf->len = 0;
@@ -1010,6 +1304,14 @@ static void *_handle_connection(void *arg)
                     client->refbuf->len = node->offset - node->stream_offset;
                     memmove (ptr, ptr + node->stream_offset, client->refbuf->len);
                 }
+
+                rawuri = httpp_getvar(parser, HTTPP_VAR_URI);
+
+                /* assign a port-based shoutcast mountpoint if required */
+                if (node->shoutcast_mount && strcmp (rawuri, "/admin.cgi") == 0)
+                    httpp_set_query_param (client->parser, "mount", node->shoutcast_mount);
+
+                free (node->shoutcast_mount);
                 free (node);
                 
                 if (strcmp("ICE",  httpp_getvar(parser, HTTPP_VAR_PROTOCOL)) &&
@@ -1019,7 +1321,6 @@ static void *_handle_connection(void *arg)
                     continue;
                 }
 
-                rawuri = httpp_getvar(parser, HTTPP_VAR_URI);
                 uri = util_normalise_uri(rawuri);
 
                 if (uri == NULL)
@@ -1059,10 +1360,99 @@ static void *_handle_connection(void *arg)
     return NULL;
 }
 
+
+/* called when listening thread is not checking for incoming connections */
+int connection_setup_sockets (ice_config_t *config)
+{
+    int count = 0;
+    listener_t *listener, **prev;
+
+    free (banned_ip.filename);
+    banned_ip.filename = NULL;
+    free (allowed_ip.filename);
+    allowed_ip.filename = NULL;
+
+    global_lock();
+    if (global.serversock)
+    {
+        for (; count < global.server_sockets; count++)
+            sock_close (global.serversock [count]);
+        free (global.serversock);
+        global.serversock = NULL;
+    }
+    if (config == NULL)
+    {
+        global_unlock();
+        return 0;
+    }
+
+    /* setup the banned/allowed IP filenames from the xml */
+    if (config->banfile)
+        banned_ip.filename = strdup (config->banfile);
+
+    if (config->allowfile)
+        allowed_ip.filename = strdup (config->allowfile);
+
+    count = 0;
+    global.serversock = calloc (config->listen_sock_count, sizeof (sock_t));
+
+    listener = config->listen_sock; 
+    prev = &config->listen_sock;
+    while (listener)
+    {
+        int successful = 0;
+
+        do
+        {
+            sock_t sock = sock_get_server_socket (listener->port, listener->bind_address);
+            if (sock == SOCK_ERROR)
+                break;
+            if (sock_listen (sock, ICE_LISTEN_QUEUE) == SOCK_ERROR)
+            {
+                sock_close (sock);
+                break;
+            }
+            sock_set_blocking (sock, SOCK_NONBLOCK);
+            successful = 1;
+            global.serversock [count] = sock;
+            count++;
+        } while(0);
+        if (successful == 0)
+        {
+            if (listener->bind_address)
+                ERROR2 ("Could not create listener socket on port %d bind %s",
+                        listener->port, listener->bind_address);
+            else
+                ERROR1 ("Could not create listener socket on port %d", listener->port);
+            /* remove failed connection */
+            *prev = config_clear_listener (listener);
+            listener = *prev;
+            continue;
+        }
+        if (listener->bind_address)
+            INFO2 ("listener socket on port %d address %s", listener->port, listener->bind_address);
+        else
+            INFO1 ("listener socket on port %d", listener->port);
+        prev = &listener->next;
+        listener = listener->next;
+    }
+    global.server_sockets = count;
+    global_unlock();
+
+    if (count == 0)
+        ERROR0 ("No listening sockets established");
+
+    return count;
+}
+
+
 void connection_close(connection_t *con)
 {
     sock_close(con->sock);
     if (con->ip) free(con->ip);
     if (con->host) free(con->host);
+#ifdef HAVE_OPENSSL
+    if (con->ssl) { SSL_shutdown (con->ssl); SSL_free (con->ssl); }
+#endif
     free(con);
 }

@@ -50,7 +50,7 @@
 #include "format.h"
 #include "fserve.h"
 #include "auth.h"
-#include "os.h"
+#include "compat.h"
 
 #undef CATMODULE
 #define CATMODULE "source"
@@ -194,10 +194,16 @@ int source_compare_sources(void *arg, void *a, void *b)
 void source_clear_source (source_t *source)
 {
     DEBUG1 ("clearing source \"%s\"", source->mount);
+
+    avl_tree_wlock (source->client_tree);
     client_destroy(source->client);
     source->client = NULL;
     source->parser = NULL;
     source->con = NULL;
+
+    /* log bytes read in access log */
+    if (source->client && source->format)
+        source->client->con->sent_bytes = source->format->read_bytes;
 
     if (source->dumpfile)
     {
@@ -206,16 +212,17 @@ void source_clear_source (source_t *source)
         source->dumpfile = NULL;
     }
 
+    if (source->listeners)
+        stats_event_sub (NULL, "listeners", source->listeners);
+
     /* lets kick off any clients that are left on here */
-    avl_tree_rlock (source->client_tree);
     while (avl_get_first (source->client_tree))
     {
         avl_delete (source->client_tree,
                 avl_get_first (source->client_tree)->key, _free_client);
     }
-    avl_tree_unlock (source->client_tree);
 
-    avl_tree_rlock (source->pending_tree);
+    avl_tree_wlock (source->pending_tree);
     while (avl_get_first (source->pending_tree))
     {
         avl_delete (source->pending_tree,
@@ -245,9 +252,10 @@ void source_clear_source (source_t *source)
     source->queue_size = 0;
     source->queue_size_limit = 0;
     source->listeners = 0;
-    source->shoutcast_compat = 0;
     source->max_listeners = -1;
+    source->prev_listeners = 0;
     source->hidden = 0;
+    source->shoutcast_compat = 0;
     source->client_stats_update = 0;
     util_dict_free (source->audio_info);
     source->audio_info = NULL;
@@ -265,6 +273,7 @@ void source_clear_source (source_t *source)
     }
 
     source->on_demand_req = 0;
+    avl_tree_unlock (source->client_tree);
 }
 
 
@@ -418,10 +427,7 @@ void source_move_clients (source_t *source, source_t *dest)
 
     /* see if we need to wake up an on-demand relay */
     if (dest->running == 0 && dest->on_demand && count)
-    {
         dest->on_demand_req = 1;
-        slave_rebuild_mounts();
-    }
 
     avl_tree_unlock (dest->pending_tree);
     thread_mutex_unlock (&move_clients_mutex);
@@ -455,9 +461,9 @@ static refbuf_t *get_next_buffer (source_t *source)
         if (current >= source->client_stats_update)
         {
             stats_event_args (source->mount, "total_bytes_read",
-                    FORMAT_UINT64, source->format->read_bytes);
+                    "%"PRIu64, source->format->read_bytes);
             stats_event_args (source->mount, "total_bytes_sent",
-                    FORMAT_UINT64, source->format->sent_bytes);
+                    "%"PRIu64, source->format->sent_bytes);
             source->client_stats_update = current + 5;
         }
         if (fds < 0)
@@ -561,7 +567,8 @@ static void send_to_listener (source_t *source, client_t *client, int deletion_e
 static void source_init (source_t *source)
 {
     ice_config_t *config = config_get_config();
-    char *listenurl, *str;
+    char *listenurl;
+    const char *str;
     int listen_url_size;
     mount_proxy *mountinfo;
 
@@ -585,9 +592,7 @@ static void source_init (source_t *source)
 
     stats_event (source->mount, "listenurl", listenurl);
 
-    if (listenurl) {
-        free(listenurl);
-    }
+    free(listenurl);
 
     if (source->dumpfilename != NULL)
     {
@@ -612,6 +617,7 @@ static void source_init (source_t *source)
 
     DEBUG0("Source creation complete");
     source->last_read = time (NULL);
+    source->prev_listeners = -1;
     source->running = 1;
 
     mountinfo = config_find_mount (config_get_config(), source->mount);
@@ -647,7 +653,6 @@ static void source_init (source_t *source)
 
 void source_main (source_t *source)
 {
-    unsigned int listeners;
     refbuf_t *refbuf;
     client_t *client;
     avl_node *client_node;
@@ -704,7 +709,6 @@ void source_main (source_t *source)
         /* acquire write lock on client_tree */
         avl_tree_wlock(source->client_tree);
 
-        listeners = source->listeners;
         client_node = avl_get_first(source->client_tree);
         while (client_node) {
             client = (client_t *)client_node->key;
@@ -715,6 +719,7 @@ void source_main (source_t *source)
                 client_node = avl_get_next(client_node);
                 avl_delete(source->client_tree, (void *)client, _free_client);
                 source->listeners--;
+                stats_event_dec (NULL, "listeners");
                 DEBUG0("Client removed");
                 continue;
             }
@@ -766,8 +771,9 @@ void source_main (source_t *source)
         avl_tree_unlock(source->pending_tree);
 
         /* update the stats if need be */
-        if (source->listeners != listeners)
+        if (source->listeners != source->prev_listeners)
         {
+            source->prev_listeners = source->listeners;
             INFO2("listener count on %s now %lu", source->mount, source->listeners);
             if (source->listeners > source->peak_listeners)
             {
@@ -928,11 +934,14 @@ static void _parse_audio_info (source_t *source, const char *s)
 /* Apply the mountinfo details to the source */
 static void source_apply_mount (source_t *source, mount_proxy *mountinfo)
 {
-    char *str;
+    const char *str;
     int val;
     http_parser_t *parser = NULL;
 
     DEBUG1("Applying mount information for \"%s\"", source->mount);
+    avl_tree_rlock (source->client_tree);
+    stats_event_args (source->mount, "listener_peak", "%lu", source->peak_listeners);
+
     if (mountinfo)
     {
         source->max_listeners = mountinfo->max_listeners;
@@ -945,6 +954,10 @@ static void source_apply_mount (source_t *source, mount_proxy *mountinfo)
 
     if (source->client)
         parser = source->client->parser;
+
+    /* to be done before possible non-utf8 stats */
+    if (source->format && source->format->apply_settings)
+        source->format->apply_settings (source->client, source->format, mountinfo);
 
     /* public */
     if (mountinfo && mountinfo->yp_public >= 0)
@@ -978,7 +991,7 @@ static void source_apply_mount (source_t *source, mount_proxy *mountinfo)
 
     /* stream name */
     if (mountinfo && mountinfo->stream_name)
-        str = mountinfo->stream_name;
+        stats_event (source->mount, "server_name", mountinfo->stream_name);
     else
     {
         do {
@@ -990,12 +1003,13 @@ static void source_apply_mount (source_t *source, mount_proxy *mountinfo)
             if (str) break;
             str = "Unspecified name";
         } while (0);
+        if (source->format)
+            stats_event_conv (source->mount, "server_name", str, source->format->charset);
     }
-    stats_event (source->mount, "server_name", str);
 
     /* stream description */
     if (mountinfo && mountinfo->stream_description)
-        str = mountinfo->stream_description;
+        stats_event (source->mount, "server_description", mountinfo->stream_description);
     else
     {
         do {
@@ -1007,12 +1021,13 @@ static void source_apply_mount (source_t *source, mount_proxy *mountinfo)
             if (str) break;
             str = "Unspecified description";
         } while (0);
+        if (source->format)
+            stats_event_conv (source->mount, "server_description", str, source->format->charset);
     }
-    stats_event (source->mount, "server_description", str);
 
     /* stream URL */
     if (mountinfo && mountinfo->stream_url)
-        str = mountinfo->stream_url;
+        stats_event (source->mount, "server_url", mountinfo->stream_url);
     else
     {
         do {
@@ -1023,12 +1038,13 @@ static void source_apply_mount (source_t *source, mount_proxy *mountinfo)
             str = httpp_getvar (parser, "x-audiocast-url");
             if (str) break;
         } while (0);
+        if (str && source->format)
+            stats_event_conv (source->mount, "server_url", str, source->format->charset);
     }
-    stats_event (source->mount, "server_url", str);
 
     /* stream genre */
     if (mountinfo && mountinfo->stream_genre)
-        str = mountinfo->stream_genre;
+        stats_event (source->mount, "genre", mountinfo->stream_genre);
     else
     {
         do {
@@ -1040,8 +1056,9 @@ static void source_apply_mount (source_t *source, mount_proxy *mountinfo)
             if (str) break;
             str = "various";
         } while (0);
+        if (source->format)
+            stats_event_conv (source->mount, "genre", str, source->format->charset);
     }
-    stats_event (source->mount, "genre", str);
 
     /* stream bitrate */
     if (mountinfo && mountinfo->bitrate)
@@ -1129,8 +1146,7 @@ static void source_apply_mount (source_t *source, mount_proxy *mountinfo)
     if (mountinfo && mountinfo->fallback_when_full)
         source->fallback_when_full = mountinfo->fallback_when_full;
 
-    if (source->format && source->format->apply_settings)
-        source->format->apply_settings (source->client, source->format, mountinfo);
+    avl_tree_unlock (source->client_tree);
 }
 
 
@@ -1150,6 +1166,9 @@ void source_update_settings (ice_config_t *config, source_t *source, mount_proxy
     source->timeout = config->source_timeout;
     source->burst_size = config->burst_size;
 
+    stats_event_args (source->mount, "listenurl", "http://%s:%d%s",
+            config->hostname, config->port, source->mount);
+
     source_apply_mount (source, mountinfo);
 
     if (source->fallback_mount)
@@ -1166,6 +1185,7 @@ void source_update_settings (ice_config_t *config, source_t *source, mount_proxy
     {
         DEBUG0 ("on_demand set");
         stats_event (source->mount, "on_demand", "1");
+        stats_event_args (source->mount, "listeners", "%ld", source->listeners);
     }
     else
         stats_event (source->mount, "on_demand", NULL);
@@ -1173,7 +1193,7 @@ void source_update_settings (ice_config_t *config, source_t *source, mount_proxy
     if (source->hidden)
     {
         stats_event_hidden (source->mount, NULL, 1);
-        DEBUG0 ("hidden from xsl");
+        DEBUG0 ("hidden from public");
     }
     else
         stats_event_hidden (source->mount, NULL, 0);
@@ -1205,7 +1225,7 @@ void *source_client_thread (void *arg)
     source_main (source);
 
     source_free_source (source);
-    source_recheck_mounts ();
+    slave_rebuild_mounts();
 
     return NULL;
 }
@@ -1302,7 +1322,7 @@ static void *source_fallback_file (void *arg)
         file = fopen (path, "rb");
         if (file == NULL)
         {
-            DEBUG1 ("unable to open file \"%s\"", path);
+            WARN1 ("unable to open file \"%s\"", path);
             free (path);
             break;
         }
@@ -1310,13 +1330,15 @@ static void *source_fallback_file (void *arg)
         source = source_reserve (mount);
         if (source == NULL)
         {
-            DEBUG1 ("mountpoint \"%s\" already reserved", mount);
+            WARN1 ("mountpoint \"%s\" already reserved", mount);
             break;
         }
+        INFO1 ("mountpoint %s is reserved", mount);
         type = fserve_content_type (mount);
         parser = httpp_create_parser();
         httpp_initialize (parser, NULL);
         httpp_setvar (parser, "content-type", type);
+        free (type);
 
         source->hidden = 1;
         source->yp_public = 0;
@@ -1339,12 +1361,15 @@ static void *source_fallback_file (void *arg)
 /* rescan the mount list, so that xsl files are updated to show
  * unconnected but active fallback mountpoints
  */
-void source_recheck_mounts (void)
+void source_recheck_mounts (int update_all)
 {
     ice_config_t *config = config_get_config();
     mount_proxy *mount = config->mounts;
 
     avl_tree_rlock (global.source_tree);
+
+    if (update_all)
+        stats_clear_virtual_mounts ();
 
     while (mount)
     {
@@ -1358,9 +1383,11 @@ void source_recheck_mounts (void)
                 mount_proxy *mountinfo = config_find_mount (config, source->mount);
                 source_update_settings (config, source, mountinfo);
             }
-            else
+            else if (update_all)
             {
                 stats_event_hidden (mount->mountname, NULL, mount->hidden);
+                stats_event_args (mount->mountname, "listenurl", "http://%s:%d%s",
+                        config->hostname, config->port, mount->mountname);
                 stats_event (mount->mountname, "listeners", "0");
                 if (mount->max_listeners < 0)
                     stats_event (mount->mountname, "max_listeners", "unlimited");

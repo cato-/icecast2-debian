@@ -42,6 +42,8 @@
 #endif
 #include "format_midi.h"
 #include "format_flac.h"
+#include "format_kate.h"
+#include "format_skeleton.h"
 
 #ifdef _WIN32
 #define snprintf _snprintf
@@ -168,7 +170,9 @@ int format_ogg_get_plugin (source_t *source)
     plugin->create_client_data = create_ogg_client_data;
     plugin->free_plugin = format_ogg_free_plugin;
     plugin->set_tag = NULL;
-    plugin->contenttype = "application/ogg";
+    if (strcmp (httpp_getvar (source->parser, "content-type"), "application/x-ogg") == 0)
+        httpp_setvar (source->parser, "content-type", "application/ogg");
+    plugin->contenttype = httpp_getvar (source->parser, "content-type");
 
     ogg_sync_init (&state->oy);
 
@@ -181,7 +185,7 @@ int format_ogg_get_plugin (source_t *source)
 }
 
 
-void format_ogg_free_plugin (format_plugin_t *plugin)
+static void format_ogg_free_plugin (format_plugin_t *plugin)
 {
     ogg_state_t *state = plugin->_state;
 
@@ -237,9 +241,16 @@ static int process_initial_page (format_plugin_t *plugin, ogg_page *page)
         if (codec)
             break;
 #endif
+        codec = initial_kate_page (plugin, page);
+        if (codec)
+            break;
+        codec = initial_skeleton_page (plugin, page);
+        if (codec)
+            break;
 
         /* any others */
         ERROR0 ("Seen BOS page with unknown type");
+        ogg_info->error = 1;
         return -1;
     } while (0);
 

@@ -10,18 +10,20 @@
 #include <libxml/parser.h>
 #include <libxml/tree.h>
 #include <stdlib.h>
+#include <curl/curl.h>
 
 extern "C" {
-#include "thread.h"
-#include "avl.h"
-#include "log.h"
+#include "thread/thread.h"
+#include "avl/avl.h"
+#include "log/log.h"
 #include "global.h"
-#include "httpp.h"
-#include "sock.h"
+#include "httpp/httpp.h"
+#include "net/sock.h"
 #include "connection.h"
 #include "refbuf.h"
 #include "client.h"
 #include "stats.h"
+#include "xslt.h"
 }
 
 #include <afxinet.h>
@@ -43,7 +45,7 @@ CString gConfigurationSave;
 char	gTitleSource[1024] = "";
 char	gTitleName[1024] = "";
 
-#define MAXSTATSPERSOURCE 30
+#define MAXSTATSPERSOURCE 60
 #define MAXSOURCES 1024
 
 typedef struct tagElement {
@@ -337,6 +339,8 @@ BOOL CIcecast2winDlg::OnInitDialog()
 	sprintf(version, "Icecast2 Version %s", ICECAST_VERSION);
 	SetWindowText(version);
 
+    xslt_initialize();
+    curl_global_init (CURL_GLOBAL_ALL);
 
 	if (m_Autostart) {
 		OnStart();
@@ -472,6 +476,8 @@ void AddUpdateStatistic(int sourceIndex, char *name, char *value)
 		}
 	}
 	int numStats = gStats[sourceIndex].numStats;
+    if (numStats >= MAXSTATSPERSOURCE)
+        return;
 	/* If we get here, we haven't found the stat, so add it */
 	gStats[sourceIndex].stats[numStats].name = name;
 	gStats[sourceIndex].stats[numStats].value = value;
@@ -488,6 +494,8 @@ int GetSourceIndex(char *sourceName)
 			return i;
 		}
 	}
+    if (numMainStats >= MAXSOURCES)
+        return 0;
 	/* This means we haven't seen the source, so lets add it */
 	numMainStats++;
 	gStats[numMainStats].source = sourceName;
@@ -537,7 +545,7 @@ void StartStats(void *dummy)
 
 			xmlDocPtr doc;
 
-			stats_get_xml(&doc, 0);
+			stats_get_xml(&doc, 0, NULL);
 			xmlNodePtr cur;
 		    cur = xmlDocGetRootElement(doc); 
 
@@ -567,7 +575,6 @@ void StartStats(void *dummy)
 				cur = cur->next;
 			}
 			xmlFreeDoc(doc);
-			xmlCleanupParser();
 			g_mainDialog->UpdateStatsLists();
 			Sleep(5000);
 		}

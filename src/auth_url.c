@@ -98,6 +98,7 @@ static void auth_url_clear(auth_t *self)
 
     INFO0 ("Doing auth URL cleanup");
     url = self->state;
+    self->state = NULL;
     curl_easy_cleanup (url->handle);
     free (url->username);
     free (url->password);
@@ -112,12 +113,14 @@ static void auth_url_clear(auth_t *self)
 }
 
 
+#ifdef CURLOPT_PASSWDFUNCTION
 /* make sure that prompting at the console does not occur */
 static int my_getpass(void *client, char *prompt, char *buffer, int buflen)
 {
     buffer[0] = '\0';
     return 0;
 }
+#endif
 
 
 static int handle_returned_header (void *ptr, size_t size, size_t nmemb, void *stream)
@@ -160,13 +163,14 @@ static int handle_returned_data (void *ptr, size_t size, size_t nmemb, void *str
 }
 
 
-static auth_result url_remove_client (auth_client *auth_user)
+static auth_result url_remove_listener (auth_client *auth_user)
 {
     client_t *client = auth_user->client;
     auth_t *auth = client->auth;
     auth_url *url = auth->state;
     time_t duration = time(NULL) - client->con->con_time;
     char *username, *password, *mount, *server;
+    const char *mountreq;
     ice_config_t *config;
     int port;
     char *userpwd = NULL, post [4096];
@@ -189,10 +193,10 @@ static auth_result url_remove_client (auth_client *auth_user)
         password = strdup ("");
 
     /* get the full uri (with query params if available) */
-    mount = httpp_getvar (client->parser, HTTPP_VAR_RAWURI);
-    if (mount == NULL)
-        mount = httpp_getvar (client->parser, HTTPP_VAR_URI);
-    mount = util_url_escape (mount);
+    mountreq = httpp_getvar (client->parser, HTTPP_VAR_RAWURI);
+    if (mountreq == NULL)
+        mountreq = httpp_getvar (client->parser, HTTPP_VAR_URI);
+    mount = util_url_escape (mountreq);
 
     snprintf (post, sizeof (post),
             "action=listener_remove&server=%s&port=%d&client=%lu&mount=%s"
@@ -240,13 +244,15 @@ static auth_result url_remove_client (auth_client *auth_user)
 }
 
 
-static auth_result url_add_client (auth_client *auth_user)
+static auth_result url_add_listener (auth_client *auth_user)
 {
     client_t *client = auth_user->client;
     auth_t *auth = client->auth;
     auth_url *url = auth->state;
     int res = 0, port;
-    char *agent, *user_agent, *username, *password;
+    const char *agent;
+    char *user_agent, *username, *password;
+    const char *mountreq;
     char *mount, *ipaddr, *server;
     ice_config_t *config;
     char *userpwd = NULL, post [4096];
@@ -272,10 +278,10 @@ static auth_result url_add_client (auth_client *auth_user)
         password = strdup ("");
 
     /* get the full uri (with query params if available) */
-    mount = httpp_getvar (client->parser, HTTPP_VAR_RAWURI);
-    if (mount == NULL)
-        mount = httpp_getvar (client->parser, HTTPP_VAR_URI);
-    mount = util_url_escape (mount);
+    mountreq = httpp_getvar (client->parser, HTTPP_VAR_RAWURI);
+    if (mountreq == NULL)
+        mountreq = httpp_getvar (client->parser, HTTPP_VAR_URI);
+    mount = util_url_escape (mountreq);
     ipaddr = util_url_escape (client->con->ip);
 
     snprintf (post, sizeof (post),
@@ -461,34 +467,53 @@ int auth_get_url_auth (auth_t *authenticator, config_options_t *options)
 {
     auth_url *url_info;
 
-    authenticator->authenticate = url_add_client;
-    authenticator->release_client = url_remove_client;
-
     authenticator->free = auth_url_clear;
     authenticator->adduser = auth_url_adduser;
     authenticator->deleteuser = auth_url_deleteuser;
     authenticator->listuser = auth_url_listuser;
 
-    authenticator->stream_start = url_stream_start;
-    authenticator->stream_end = url_stream_end;
-
     url_info = calloc(1, sizeof(auth_url));
+    authenticator->state = url_info;
+
+    /* default headers */
     url_info->auth_header = strdup ("icecast-auth-user: 1\r\n");
     url_info->timelimit_header = strdup ("icecast-auth-timelimit:");
 
     while(options) {
         if(!strcmp(options->name, "username"))
+        {
+            free (url_info->username);
             url_info->username = strdup (options->value);
+        }
         if(!strcmp(options->name, "password"))
+        {
+            free (url_info->password);
             url_info->password = strdup (options->value);
+        }
         if(!strcmp(options->name, "listener_add"))
+        {
+            authenticator->authenticate = url_add_listener;
+            free (url_info->addurl);
             url_info->addurl = strdup (options->value);
+        }
         if(!strcmp(options->name, "listener_remove"))
+        {
+            authenticator->release_listener = url_remove_listener;
+            free (url_info->removeurl);
             url_info->removeurl = strdup (options->value);
+        }
         if(!strcmp(options->name, "mount_add"))
+        {
+            authenticator->stream_start = url_stream_start;
+            free (url_info->stream_start);
             url_info->stream_start = strdup (options->value);
+        }
         if(!strcmp(options->name, "mount_remove"))
+        {
+            authenticator->stream_end = url_stream_end;
+            free (url_info->stream_end);
             url_info->stream_end = strdup (options->value);
+        }
         if(!strcmp(options->name, "auth_header"))
         {
             free (url_info->auth_header);
@@ -504,7 +529,7 @@ int auth_get_url_auth (auth_t *authenticator, config_options_t *options)
     url_info->handle = curl_easy_init ();
     if (url_info->handle == NULL)
     {
-        free (url_info);
+        auth_url_clear (authenticator);
         return -1;
     }
     if (url_info->auth_header)
@@ -518,7 +543,9 @@ int auth_get_url_auth (auth_t *authenticator, config_options_t *options)
     curl_easy_setopt (url_info->handle, CURLOPT_WRITEDATA, url_info->handle);
     curl_easy_setopt (url_info->handle, CURLOPT_NOSIGNAL, 1L);
     curl_easy_setopt (url_info->handle, CURLOPT_TIMEOUT, 15L);
+#ifdef CURLOPT_PASSWDFUNCTION
     curl_easy_setopt (url_info->handle, CURLOPT_PASSWDFUNCTION, my_getpass);
+#endif
     curl_easy_setopt (url_info->handle, CURLOPT_ERRORBUFFER, &url_info->errormsg[0]);
 
     if (url_info->username && url_info->password)
@@ -528,7 +555,6 @@ int auth_get_url_auth (auth_t *authenticator, config_options_t *options)
         snprintf (url_info->userpwd, len, "%s:%s", url_info->username, url_info->password);
     }
 
-    authenticator->state = url_info;
     INFO0("URL based authentication setup");
     return 0;
 }

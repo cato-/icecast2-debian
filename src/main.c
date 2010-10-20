@@ -21,6 +21,9 @@
 #ifdef HAVE_UNISTD_H
 # include <unistd.h>
 #endif
+#ifdef HAVE_CURL
+#include <curl/curl.h>
+#endif
 
 #include "thread/thread.h"
 #include "avl/avl.h"
@@ -39,7 +42,7 @@
 #include "sighandler.h"
 
 #include "global.h"
-#include "os.h"
+#include "compat.h"
 #include "connection.h"
 #include "refbuf.h"
 #include "client.h"
@@ -56,6 +59,7 @@
 #ifdef _WIN32
 /* For getpid() */
 #include <process.h>
+#include <windows.h>
 #define snprintf _snprintf
 #define getpid _getpid
 #endif
@@ -75,9 +79,9 @@ static void _fatal_error(char *perr)
 #endif
 }
 
-static void _print_usage()
+static void _print_usage(void)
 {
-    printf(ICECAST_VERSION_STRING "\n\n");
+    printf("%s\n\n", ICECAST_VERSION_STRING);
     printf("usage: icecast [-b -v] -c <file>\n");
     printf("options:\n");
     printf("\t-c <file>\tSpecify configuration file\n");
@@ -103,13 +107,23 @@ static void _initialize_subsystems(void)
     connection_initialize();
     global_initialize();
     refbuf_initialize();
+#if !defined(WIN32) || defined(WIN32_SERVICE)
+    /* win32 GUI needs to do the initialise before here */
     xslt_initialize();
+#ifdef HAVE_CURL_GLOBAL_INIT
+    curl_global_init (CURL_GLOBAL_ALL);
+#endif
+#endif
 }
 
 static void _shutdown_subsystems(void)
 {
     fserve_shutdown();
+#if !defined(WIN32) || defined(WIN32_SERVICE)
+    /* If we do the following cleanup on the win32 GUI then the app will crash when libxml2 is
+     * initialised again as the process doesn't terminate */
     xslt_shutdown();
+#endif
     refbuf_shutdown();
     slave_shutdown();
     auth_shutdown();
@@ -123,11 +137,13 @@ static void _shutdown_subsystems(void)
     sock_shutdown();
     thread_shutdown();
 
+#ifdef HAVE_CURL
+    curl_global_cleanup();
+#endif
+
     /* Now that these are done, we can stop the loggers. */
     _stop_logging();
     log_shutdown();
-
-    xmlCleanupParser();
 }
 
 static int _parse_config_opts(int argc, char **argv, char *filename, int size)
@@ -261,41 +277,6 @@ static int _start_logging(void)
     return 0;
 }
 
-static int _setup_sockets(void)
-{
-    ice_config_t *config;
-    int i = 0;
-    int ret = 0;
-    int successful = 0;
-    char pbuf[1024];
-
-    config = config_get_config_unlocked();
-
-    for(i = 0; i < MAX_LISTEN_SOCKETS; i++) {
-        if(config->listeners[i].port <= 0)
-            break;
-
-        global.serversock[i] = sock_get_server_socket(
-                config->listeners[i].port, config->listeners[i].bind_address);
-
-        if (global.serversock[i] == SOCK_ERROR) {
-            memset(pbuf, '\000', sizeof(pbuf));
-            snprintf(pbuf, sizeof(pbuf)-1, 
-                "Could not create listener socket on port %d", 
-                config->listeners[i].port);
-            _fatal_error(pbuf);
-            return 0;
-        }
-        else {
-            ret = 1;
-            successful++;
-        }
-    }
-
-    global.server_sockets = successful;
-    
-    return ret;
-}
 
 static int _start_listening(void)
 {
@@ -313,9 +294,9 @@ static int _start_listening(void)
 /* bind the socket and start listening */
 static int _server_proc_init(void)
 {
-    ice_config_t *config;
+    ice_config_t *config = config_get_config_unlocked();
 
-    if (!_setup_sockets())
+    if (connection_setup_sockets (config) < 1)
         return 0;
 
     if (!_start_listening()) {
@@ -323,7 +304,6 @@ static int _server_proc_init(void)
         return 0;
     }
 
-    config = config_get_config_unlocked();
     /* recreate the pid file */
     if (config->pidfile)
     {
@@ -342,8 +322,6 @@ static int _server_proc_init(void)
 /* this is the heart of the beast */
 static void _server_proc(void)
 {
-    int i;
-
     if (background)
     {
         fclose (stdin);
@@ -352,8 +330,7 @@ static void _server_proc(void)
     }
     connection_accept_loop();
 
-    for(i=0; i < MAX_LISTEN_SOCKETS; i++)
-        sock_close(global.serversock[i]);
+    connection_setup_sockets (NULL);
 }
 
 /* chroot the process. Watch out - we need to do this before starting other
@@ -518,7 +495,7 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    INFO0 (ICECAST_VERSION_STRING " server started");
+    INFO1 ("%s server started", ICECAST_VERSION_STRING);
 
     /* REM 3D Graphics */
 
