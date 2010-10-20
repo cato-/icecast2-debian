@@ -1,7 +1,7 @@
 dnl XIPH_PATH_CURL([ACTION-IF-FOUND [, ACTION-IF-NOT-FOUND]])
 dnl Test for libcurl, and define CURL_CFLAGS and CURL_LIBS
 dnl
-dnl $Id: xiph_curl.m4 7020 2004-07-06 19:21:46Z brendan $
+dnl $Id: xiph_curl.m4 9556 2005-07-10 14:24:08Z karl $
 dnl
 AC_DEFUN([XIPH_PATH_CURL],
 [dnl 
@@ -14,7 +14,7 @@ AC_ARG_WITH(curl-config,
     AC_HELP_STRING([--with-curl-config=curl-config],[Use curl-config to find libcurl]),
     CURL_CONFIG="$withval", [AC_PATH_PROGS(CURL_CONFIG, [curl-config], "")])
 
-if test "x$curl_prefix" != "x"; then
+if test "x$curl_prefix" != "x" -a "x$curl_prefix" != "xyes"; then
     CURL_LIBS="-L$curl_prefix/lib -lcurl"
     CURL_CFLAGS="-I$curl_prefix/include"
 elif test "x$CURL_CONFIG" != "x"; then

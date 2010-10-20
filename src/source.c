@@ -26,6 +26,7 @@
 #include <unistd.h>
 #include <sys/time.h>
 #include <sys/socket.h>
+#include <sys/wait.h>
 #else
 #include <winsock2.h>
 #include <windows.h>
@@ -47,7 +48,9 @@
 #include "util.h"
 #include "source.h"
 #include "format.h"
+#include "fserve.h"
 #include "auth.h"
+#include "os.h"
 
 #undef CATMODULE
 #define CATMODULE "source"
@@ -61,6 +64,11 @@ static int _compare_clients(void *compare_arg, void *a, void *b);
 static int _free_client(void *key);
 static void _parse_audio_info (source_t *source, const char *s);
 static void source_shutdown (source_t *source);
+#ifdef _WIN32
+#define source_run_script(x,y)  WARN0("on [dis]connect scripts disabled");
+#else
+static void source_run_script (char *command, char *mountpoint);
+#endif
 
 /* Allocate a new source with the stated mountpoint, if one already
  * exists with that mountpoint in the global source tree then return
@@ -147,34 +155,25 @@ source_t *source_find_mount (const char *mount)
     int depth = 0;
 
     config = config_get_config();
-    while (mount != NULL)
+    while (mount && depth < MAX_FALLBACK_DEPTH)
     {
-        /* limit the number of times through, maybe infinite */
-        if (depth > MAX_FALLBACK_DEPTH)
-        {
-            source = NULL;
-            break;
-        }
-
         source = source_find_mount_raw(mount);
 
-        if (source != NULL && source->running)
-            break;
-
-        /* source is not running, meaning that the fallback is not configured
-           within the source, we need to check the mount list */
-        mountinfo = config->mounts;
-        source = NULL;
-        while (mountinfo)
+        if (source)
         {
-            if (strcmp (mountinfo->mountname, mount) == 0)
+            if (source->running || source->on_demand)
                 break;
-            mountinfo = mountinfo->next;
         }
-        if (mountinfo)
-            mount = mountinfo->fallback_mount;
-        else
-            mount = NULL;
+
+        /* we either have a source which is not active (relay) or no source
+         * at all. Check the mounts list for fallback settings
+         */
+        mountinfo = config_find_mount (config, mount);
+        source = NULL;
+
+        if (mountinfo == NULL)
+            break;
+        mount = mountinfo->fallback_mount;
         depth++;
     }
 
@@ -225,33 +224,8 @@ void source_clear_source (source_t *source)
     avl_tree_unlock (source->pending_tree);
 
     if (source->format && source->format->free_plugin)
-    {
         source->format->free_plugin (source->format);
-    }
     source->format = NULL;
-    if (source->yp_public)
-        yp_remove (source->mount);
-
-    source->burst_point = NULL;
-    source->burst_size = 0;
-    source->burst_offset = 0;
-    source->queue_size = 0;
-    source->queue_size_limit = 0;
-    source->listeners = 0;
-    source->no_mount = 0;
-    source->shoutcast_compat = 0;
-    source->max_listeners = -1;
-    source->yp_public = 0;
-    source->yp_prevent = 0;
-    source->hidden = 0;
-    util_dict_free (source->audio_info);
-    source->audio_info = NULL;
-
-    free(source->fallback_mount);
-    source->fallback_mount = NULL;
-
-    free(source->dumpfilename);
-    source->dumpfilename = NULL;
 
     /* Lets clear out the source queue too */
     while (source->stream_data)
@@ -264,6 +238,33 @@ void source_clear_source (source_t *source)
         refbuf_release (p);
     }
     source->stream_data_tail = NULL;
+
+    source->burst_point = NULL;
+    source->burst_size = 0;
+    source->burst_offset = 0;
+    source->queue_size = 0;
+    source->queue_size_limit = 0;
+    source->listeners = 0;
+    source->shoutcast_compat = 0;
+    source->max_listeners = -1;
+    source->hidden = 0;
+    source->client_stats_update = 0;
+    util_dict_free (source->audio_info);
+    source->audio_info = NULL;
+
+    free(source->fallback_mount);
+    source->fallback_mount = NULL;
+
+    free(source->dumpfilename);
+    source->dumpfilename = NULL;
+
+    if (source->intro_file)
+    {
+        fclose (source->intro_file);
+        source->intro_file = NULL;
+    }
+
+    source->on_demand_req = 0;
 }
 
 
@@ -277,6 +278,9 @@ void source_free_source (source_t *source)
 
     avl_tree_free(source->pending_tree, _free_client);
     avl_tree_free(source->client_tree, _free_client);
+
+    /* make sure all YP entries have gone */
+    yp_remove (source->mount);
 
     free (source->mount);
     free (source);
@@ -305,6 +309,7 @@ client_t *source_find_client(source_t *source, int id)
     return NULL;
 }
 
+
 /* Move clients from source to dest provided dest is running
  * and that the stream format is the same.
  * The only lock that should be held when this is called is the
@@ -312,12 +317,18 @@ client_t *source_find_client(source_t *source, int id)
  */
 void source_move_clients (source_t *source, source_t *dest)
 {
+    unsigned long count = 0;
+    if (strcmp (source->mount, dest->mount) == 0)
+    {
+        WARN1 ("src and dst are the same \"%s\", skipping", source->mount);
+        return;
+    }
     /* we don't want the two write locks to deadlock in here */
     thread_mutex_lock (&move_clients_mutex);
 
     /* if the destination is not running then we can't move clients */
 
-    if (dest->running == 0)
+    if (dest->running == 0 && dest->on_demand == 0)
     {
         WARN1 ("destination mount %s not running, unable to move clients ", dest->mount);
         thread_mutex_unlock (&move_clients_mutex);
@@ -329,18 +340,23 @@ void source_move_clients (source_t *source, source_t *dest)
     {
         client_t *client;
 
-        /* we need to move the client and pending trees */
+        /* we need to move the client and pending trees - we must take the
+         * locks in this order to avoid deadlocks */
+        avl_tree_wlock (source->client_tree);
         avl_tree_wlock (source->pending_tree);
 
-        if (source->format == NULL)
+        if (source->on_demand == 0 && source->format == NULL)
         {
             INFO1 ("source mount %s is not available", source->mount);
             break;
         }
-        if (source->format->type != dest->format->type)
+        if (source->format && dest->format)
         {
-            WARN2 ("stream %s and %s are of different types, ignored", source->mount, dest->mount);
-            break;
+            if (source->format->type != dest->format->type)
+            {
+                WARN2 ("stream %s and %s are of different types, ignored", source->mount, dest->mount);
+                break;
+            }
         }
 
         while (1)
@@ -351,12 +367,22 @@ void source_move_clients (source_t *source, source_t *dest)
             client = (client_t *)(node->key);
             avl_delete (source->pending_tree, client, NULL);
 
-            /* switch client to different queue */
-            client_set_queue (client, dest->stream_data_tail);
+            /* when switching a client to a different queue, be wary of the 
+             * refbuf it's referring to, if it's http headers then we need
+             * to write them so don't release it.
+             */
+            if (client->check_buffer != format_check_http_buffer)
+            {
+                client_set_queue (client, NULL);
+                client->check_buffer = format_check_file_buffer;
+                if (source->con == NULL)
+                    client->intro_offset = -1;
+            }
+
             avl_insert (dest->pending_tree, (void *)client);
+            count++;
         }
 
-        avl_tree_wlock (source->client_tree);
         while (1)
         {
             avl_node *node = avl_get_first (source->client_tree);
@@ -366,38 +392,39 @@ void source_move_clients (source_t *source, source_t *dest)
             client = (client_t *)(node->key);
             avl_delete (source->client_tree, client, NULL);
 
-            /* switch client to different queue */
-            client_set_queue (client, dest->stream_data_tail);
+            /* when switching a client to a different queue, be wary of the 
+             * refbuf it's referring to, if it's http headers then we need
+             * to write them so don't release it.
+             */
+            if (client->check_buffer != format_check_http_buffer)
+            {
+                client_set_queue (client, NULL);
+                client->check_buffer = format_check_file_buffer;
+                if (source->con == NULL)
+                    client->intro_offset = -1;
+            }
             avl_insert (dest->pending_tree, (void *)client);
+            count++;
         }
+        INFO2 ("passing %lu listeners to \"%s\"", count, dest->mount);
+
         source->listeners = 0;
         stats_event (source->mount, "listeners", "0");
-        avl_tree_unlock (source->client_tree);
 
     } while (0);
 
     avl_tree_unlock (source->pending_tree);
+    avl_tree_unlock (source->client_tree);
+
+    /* see if we need to wake up an on-demand relay */
+    if (dest->running == 0 && dest->on_demand && count)
+    {
+        dest->on_demand_req = 1;
+        slave_rebuild_mounts();
+    }
+
     avl_tree_unlock (dest->pending_tree);
     thread_mutex_unlock (&move_clients_mutex);
-}
-
-
-/* clients need to be start from somewhere in the queue
- *  * so we will look for a refbuf which has been previous
- *   * marked as a sync point */
-static void find_client_start (source_t *source, client_t *client)
-{
-    refbuf_t *refbuf = source->burst_point;
-
-    while (refbuf)
-    {
-        if (refbuf->sync_point)
-        {
-            client_set_queue (client, refbuf);
-            break;
-        }
-        refbuf = refbuf->next;
-    }
 }
 
 
@@ -414,11 +441,25 @@ static refbuf_t *get_next_buffer (source_t *source)
         delay = 0;
     while (global.running == ICE_RUNNING && source->running)
     {
-        int fds;
+        int fds = 0;
         time_t current = time (NULL);
 
-        fds = util_timed_wait_for_fd (source->con->sock, delay);
+        if (source->client)
+            fds = util_timed_wait_for_fd (source->con->sock, delay);
+        else
+        {
+            thread_sleep (delay*1000);
+            source->last_read = current;
+        }
 
+        if (current >= source->client_stats_update)
+        {
+            stats_event_args (source->mount, "total_bytes_read",
+                    FORMAT_UINT64, source->format->read_bytes);
+            stats_event_args (source->mount, "total_bytes_sent",
+                    FORMAT_UINT64, source->format->sent_bytes);
+            source->client_stats_update = current + 5;
+        }
         if (fds < 0)
         {
             if (! sock_recoverable (sock_error()))
@@ -432,7 +473,8 @@ static refbuf_t *get_next_buffer (source_t *source)
         {
             if (source->last_read + (time_t)source->timeout < current)
             {
-                DEBUG3 ("last %ld, timeout %ld, now %ld", source->last_read, source->timeout, current);
+                DEBUG3 ("last %ld, timeout %d, now %ld", (long)source->last_read,
+                        source->timeout, (long)current);
                 WARN0 ("Disconnecting source due to socket timeout");
                 source->running = 0;
             }
@@ -440,6 +482,12 @@ static refbuf_t *get_next_buffer (source_t *source)
         }
         source->last_read = current;
         refbuf = source->format->get_buffer (source);
+        if (source->client->con && source->client->con->error)
+        {
+            INFO1 ("End of Stream %s", source->mount);
+            source->running = 0;
+            continue;
+        }
         if (refbuf)
             break;
     }
@@ -459,16 +507,16 @@ static void send_to_listener (source_t *source, client_t *client, int deletion_e
     int loop = 10;   /* max number of iterations in one go */
     int total_written = 0;
 
-    /* new users need somewhere to start from */
-    if (client->refbuf == NULL)
-    {
-        find_client_start (source, client);
-        if (client->refbuf == NULL)
-            return;
-    }
-
     while (1)
     {
+        /* check for limited listener time */
+        if (client->con->discon_time)
+            if (time(NULL) >= client->con->discon_time)
+            {
+                INFO1 ("time limit reached for client #%lu", client->con->id);
+                client->con->error = 1;
+            }
+
         /* jump out if client connection has died */
         if (client->con->error)
             break;
@@ -477,35 +525,45 @@ static void send_to_listener (source_t *source, client_t *client, int deletion_e
            sleep for too long if more data can be sent */
         if (total_written > 20000 || loop == 0)
         {
-            source->short_delay = 1;
+            if (client->check_buffer != format_check_file_buffer)
+                source->short_delay = 1;
             break;
         }
 
         loop--;
 
-        bytes = source->format->write_buf_to_client (source->format, client);
+        if (client->check_buffer (source, client) < 0)
+            break;
+
+        bytes = client->write_to_client (client);
         if (bytes <= 0)
             break;  /* can't write any more */
 
         total_written += bytes;
     }
+    source->format->sent_bytes += total_written;
 
     /* the refbuf referenced at head (last in queue) may be marked for deletion
      * if so, check to see if this client is still referring to it */
-    if (deletion_expected && client->refbuf == source->stream_data)
+    if (deletion_expected && client->refbuf && client->refbuf == source->stream_data)
     {
-        DEBUG0("Client has fallen too far behind, removing");
+        INFO2 ("Client %lu (%s) has fallen too far behind, removing",
+                client->con->id, client->con->ip);
+        stats_event_inc (source->mount, "slow_listeners");
         client->con->error = 1;
     }
 }
 
 
+/* Perform any initialisation just before the stream data is processed, the header
+ * info is processed by now and the format details are setup
+ */
 static void source_init (source_t *source)
 {
     ice_config_t *config = config_get_config();
     char *listenurl, *str;
     int listen_url_size;
-    char *s;
+    mount_proxy *mountinfo;
 
     /* 6 for max size of port */
     listen_url_size = strlen("http://") + strlen(config->hostname) +
@@ -516,23 +574,6 @@ static void source_init (source_t *source)
     snprintf (listenurl, listen_url_size, "http://%s:%d%s",
             config->hostname, config->port, source->mount);
     config_release_config();
-
-    do
-    {
-        str = "0";
-        if (source->yp_prevent)
-            break;
-        if ((str = httpp_getvar(source->parser, "ice-public")))
-            break;
-        if ((str = httpp_getvar(source->parser, "icy-pub")))
-            break;
-        /* handle header from icecast v2 release */
-        if ((str = httpp_getvar(source->parser, "icy-public")))
-            break;
-        str = "0";
-    } while (0);
-    source->yp_public = atoi (str);
-    stats_event (source->mount, "public", str);
 
     str = httpp_getvar(source->parser, "ice-audio-info");
     source->audio_info = util_dict_new();
@@ -563,15 +604,24 @@ static void source_init (source_t *source)
 
     /* start off the statistics */
     source->listeners = 0;
-    stats_event_inc (NULL, "sources");
     stats_event_inc (NULL, "source_total_connections");
-    stats_event (source->mount, "listeners", "0");
-
-    sock_set_blocking (source->con->sock, SOCK_NONBLOCK);
+    stats_event (source->mount, "slow_listeners", "0");
+    stats_event_args (source->mount, "listeners", "%lu", source->listeners);
+    stats_event_args (source->mount, "listener_peak", "%lu", source->peak_listeners);
+    stats_event_time (source->mount, "stream_start");
 
     DEBUG0("Source creation complete");
     source->last_read = time (NULL);
     source->running = 1;
+
+    mountinfo = config_find_mount (config_get_config(), source->mount);
+    if (mountinfo)
+    {
+        if (mountinfo->on_connect)
+            source_run_script (mountinfo->on_connect, source->mount);
+        auth_stream_start (mountinfo, source->mount);
+    }
+    config_release_config();
 
     /*
     ** Now, if we have a fallback source and override is on, we want
@@ -591,22 +641,6 @@ static void source_init (source_t *source)
             source_move_clients (fallback_source, source);
 
         avl_tree_unlock(global.source_tree);
-    }
-    if (source->yp_public) {
-        yp_add (source);
-    }
-    else {
-    /* If we are a private server, see if ic*-name and description
-       is provided, and if so, add them to the stats */
-        if ((s = httpp_getvar(source->parser, "ice-name"))) {
-            stats_event (source->mount, "server_name", s);
-        }
-        if ((s = httpp_getvar(source->parser, "icy-name"))) {
-            stats_event (source->mount, "server_name", s);
-        }
-        if ((s = httpp_getvar(source->parser, "ice-description"))) {
-            stats_event (source->mount, "server_description", s);
-        }
     }
 }
 
@@ -645,14 +679,18 @@ void source_main (source_t *source)
 
             /* new data on queue, so check the burst point */
             source->burst_offset += refbuf->len;
-            if (source->burst_offset > source->burst_size)
+            while (source->burst_offset > source->burst_size)
             {
-                if (source->burst_point->next)
+                refbuf_t *to_release = source->burst_point;
+
+                if (to_release->next)
                 {
-                    refbuf_release (source->burst_point);
-                    source->burst_point = source->burst_point->next;
-                    source->burst_offset -= source->burst_point->len;
+                    source->burst_point = to_release->next;
+                    source->burst_offset -= to_release->len;
+                    refbuf_release (to_release);
+                    continue;
                 }
+                break;
             }
 
             /* save stream to file */
@@ -689,8 +727,9 @@ void source_main (source_t *source)
         /** add pending clients **/
         client_node = avl_get_first(source->pending_tree);
         while (client_node) {
+
             if(source->max_listeners != -1 && 
-                    source->listeners >= source->max_listeners) 
+                    source->listeners >= (unsigned long)source->max_listeners) 
             {
                 /* The common case is caught in the main connection handler,
                  * this deals with rarer cases (mostly concerning fallbacks)
@@ -711,7 +750,6 @@ void source_main (source_t *source)
 
             source->listeners++;
             DEBUG0("Client added");
-            stats_event_inc(NULL, "clients");
             stats_event_inc(source->mount, "connections");
 
             client_node = avl_get_next(client_node);
@@ -730,8 +768,15 @@ void source_main (source_t *source)
         /* update the stats if need be */
         if (source->listeners != listeners)
         {
-            INFO2("listener count on %s now %d", source->mount, source->listeners);
-            stats_event_args (source->mount, "listeners", "%d", source->listeners);
+            INFO2("listener count on %s now %lu", source->mount, source->listeners);
+            if (source->listeners > source->peak_listeners)
+            {
+                source->peak_listeners = source->listeners;
+                stats_event_args (source->mount, "listener_peak", "%lu", source->peak_listeners);
+            }
+            stats_event_args (source->mount, "listeners", "%lu", source->listeners);
+            if (source->listeners == 0 && source->on_demand)
+                source->running = 0;
         }
 
         /* lets reduce the queue, any lagging clients should of been
@@ -768,8 +813,19 @@ void source_main (source_t *source)
 
 static void source_shutdown (source_t *source)
 {
+    mount_proxy *mountinfo;
+
     source->running = 0;
     INFO1("Source \"%s\" exiting", source->mount);
+
+    mountinfo = config_find_mount (config_get_config(), source->mount);
+    if (mountinfo)
+    {
+        if (mountinfo->on_disconnect)
+            source_run_script (mountinfo->on_disconnect, source->mount);
+        auth_stream_end (mountinfo, source->mount);
+    }
+    config_release_config();
 
     /* we have de-activated the source now, so no more clients will be
      * added, now move the listeners we have to the fallback (if any)
@@ -788,7 +844,6 @@ static void source_shutdown (source_t *source)
     }
 
     /* delete this sources stats */
-    stats_event_dec(NULL, "sources");
     stats_event(source->mount, NULL, NULL);
 
     /* we don't remove the source from the tree here, it may be a relay and
@@ -797,11 +852,13 @@ static void source_shutdown (source_t *source)
 
     global_lock();
     global.sources--;
+    stats_event_args (NULL, "sources", "%d", global.sources);
     global_unlock();
 
     /* release our hold on the lock so the main thread can continue cleaning up */
     thread_rwlock_unlock(source->shutdown_rwlock);
 }
+
 
 static int _compare_clients(void *compare_arg, void *a, void *b)
 {
@@ -826,12 +883,11 @@ static int _free_client(void *key)
 {
     client_t *client = (client_t *)key;
 
-    global_lock();
-    global.clients--;
-    global_unlock();
-    stats_event_dec(NULL, "clients");
-    
-    client_destroy(client);
+    /* if no response has been sent then send a 404 */
+    if (client->respcode == 0)
+        client_send_404 (client, "Mount unavailable");
+    else
+        client_destroy(client);
     
     return 1;
 }
@@ -869,76 +925,458 @@ static void _parse_audio_info (source_t *source, const char *s)
 }
 
 
-void source_apply_mount (source_t *source, mount_proxy *mountinfo)
+/* Apply the mountinfo details to the source */
+static void source_apply_mount (source_t *source, mount_proxy *mountinfo)
 {
+    char *str;
+    int val;
+    http_parser_t *parser = NULL;
+
     DEBUG1("Applying mount information for \"%s\"", source->mount);
-    source->max_listeners = mountinfo->max_listeners;
-    source->fallback_override = mountinfo->fallback_override;
-    source->no_mount = mountinfo->no_mount;
-    source->hidden = mountinfo->hidden;
-    stats_event_hidden (source->mount, NULL, source->hidden);
-
-    if (mountinfo->fallback_mount)
+    if (mountinfo)
     {
+        source->max_listeners = mountinfo->max_listeners;
+        source->fallback_override = mountinfo->fallback_override;
+        source->hidden = mountinfo->hidden;
+    }
+
+    /* if a setting is available in the mount details then use it, else
+     * check the parser details. */
+
+    if (source->client)
+        parser = source->client->parser;
+
+    /* public */
+    if (mountinfo && mountinfo->yp_public >= 0)
+        val = mountinfo->yp_public;
+    else
+    {
+        do {
+            str = httpp_getvar (parser, "ice-public");
+            if (str) break;
+            str = httpp_getvar (parser, "icy-pub");
+            if (str) break;
+            str = httpp_getvar (parser, "x-audiocast-public");
+            if (str) break;
+            /* handle header from icecast v2 release */
+            str = httpp_getvar (parser, "icy-public");
+            if (str) break;
+            str = "0";
+        } while (0);
+        val = atoi (str);
+    }
+    stats_event_args (source->mount, "public", "%d", val);
+    if (source->yp_public != val)
+    {
+        DEBUG1 ("YP changed to %d", val);
+        if (val)
+            yp_add (source->mount);
+        else
+            yp_remove (source->mount);
+        source->yp_public = val;
+    }
+
+    /* stream name */
+    if (mountinfo && mountinfo->stream_name)
+        str = mountinfo->stream_name;
+    else
+    {
+        do {
+            str = httpp_getvar (parser, "ice-name");
+            if (str) break;
+            str = httpp_getvar (parser, "icy-name");
+            if (str) break;
+            str = httpp_getvar (parser, "x-audiocast-name");
+            if (str) break;
+            str = "Unspecified name";
+        } while (0);
+    }
+    stats_event (source->mount, "server_name", str);
+
+    /* stream description */
+    if (mountinfo && mountinfo->stream_description)
+        str = mountinfo->stream_description;
+    else
+    {
+        do {
+            str = httpp_getvar (parser, "ice-description");
+            if (str) break;
+            str = httpp_getvar (parser, "icy-description");
+            if (str) break;
+            str = httpp_getvar (parser, "x-audiocast-description");
+            if (str) break;
+            str = "Unspecified description";
+        } while (0);
+    }
+    stats_event (source->mount, "server_description", str);
+
+    /* stream URL */
+    if (mountinfo && mountinfo->stream_url)
+        str = mountinfo->stream_url;
+    else
+    {
+        do {
+            str = httpp_getvar (parser, "ice-url");
+            if (str) break;
+            str = httpp_getvar (parser, "icy-url");
+            if (str) break;
+            str = httpp_getvar (parser, "x-audiocast-url");
+            if (str) break;
+        } while (0);
+    }
+    stats_event (source->mount, "server_url", str);
+
+    /* stream genre */
+    if (mountinfo && mountinfo->stream_genre)
+        str = mountinfo->stream_genre;
+    else
+    {
+        do {
+            str = httpp_getvar (parser, "ice-genre");
+            if (str) break;
+            str = httpp_getvar (parser, "icy-genre");
+            if (str) break;
+            str = httpp_getvar (parser, "x-audiocast-genre");
+            if (str) break;
+            str = "various";
+        } while (0);
+    }
+    stats_event (source->mount, "genre", str);
+
+    /* stream bitrate */
+    if (mountinfo && mountinfo->bitrate)
+        str = mountinfo->bitrate;
+    else
+    {
+        do {
+            str = httpp_getvar (parser, "ice-bitrate");
+            if (str) break;
+            str = httpp_getvar (parser, "icy-br");
+            if (str) break;
+            str = httpp_getvar (parser, "x-audiocast-bitrate");
+        } while (0);
+    }
+    stats_event (source->mount, "bitrate", str);
+
+    /* handle MIME-type */
+    if (mountinfo && mountinfo->type)
+        stats_event (source->mount, "server_type", mountinfo->type);
+    else
+        if (source->format)
+            stats_event (source->mount, "server_type", source->format->contenttype);
+
+    if (mountinfo && mountinfo->subtype)
+        stats_event (source->mount, "subtype", mountinfo->subtype);
+
+    if (mountinfo && mountinfo->auth)
+        stats_event (source->mount, "authenticator", mountinfo->auth->type);
+    else
+        stats_event (source->mount, "authenticator", NULL);
+
+    if (mountinfo && mountinfo->fallback_mount)
+    {
+        char *mount = source->fallback_mount;
         source->fallback_mount = strdup (mountinfo->fallback_mount);
-        DEBUG1 ("fallback %s", mountinfo->fallback_mount);
+        free (mount);
     }
-    if (mountinfo->auth_type != NULL)
+    else
+        source->fallback_mount = NULL;
+
+    if (mountinfo && mountinfo->dumpfile)
     {
-        source->authenticator = auth_get_authenticator(
-                mountinfo->auth_type, mountinfo->auth_options);
-        stats_event(source->mount, "authenticator", mountinfo->auth_type);
-    }
-    if (mountinfo->dumpfile)
-    {
-        DEBUG1("Dumping stream to %s", mountinfo->dumpfile);
+        char *filename = source->dumpfilename;
         source->dumpfilename = strdup (mountinfo->dumpfile);
+        free (filename);
     }
-    if (mountinfo->queue_size_limit)
+    else
+        source->dumpfilename = NULL;
+
+    if (mountinfo && mountinfo->intro_filename && source->intro_file == NULL)
     {
-        source->queue_size_limit = mountinfo->queue_size_limit;
-        DEBUG1 ("queue size to %u", source->queue_size_limit);
-    }
-    if (mountinfo->source_timeout)
-    {
-        source->timeout = mountinfo->source_timeout;
-        DEBUG1 ("source timeout to %u", source->timeout);
-    }
-    if (mountinfo->no_yp)
-    {
-        source->yp_prevent = 1;
-        DEBUG0 ("preventing YP listings");
+        ice_config_t *config = config_get_config_unlocked ();
+        unsigned int len  = strlen (config->webroot_dir) +
+            strlen (mountinfo->intro_filename) + 2;
+        char *path = malloc (len);
+        if (path)
+        {
+            snprintf (path, len, "%s" PATH_SEPARATOR "%s", config->webroot_dir,
+                    mountinfo->intro_filename);
+
+            source->intro_file = fopen (path, "rb");
+            if (source->intro_file == NULL)
+                WARN2 ("Cannot open intro file \"%s\": %s", path, strerror(errno));
+            free (path);
+        }
     }
 
-    if (mountinfo->burst_size > -1)
-        source->burst_size = mountinfo->burst_size;
-    DEBUG1 ("amount to burst on client connect set to %u", source->burst_size);
+    if (mountinfo && mountinfo->queue_size_limit)
+        source->queue_size_limit = mountinfo->queue_size_limit;
+
+    if (mountinfo && mountinfo->source_timeout)
+        source->timeout = mountinfo->source_timeout;
+
+    if (mountinfo && mountinfo->burst_size >= 0)
+        source->burst_size = (unsigned int)mountinfo->burst_size;
+
+    if (mountinfo && mountinfo->fallback_when_full)
+        source->fallback_when_full = mountinfo->fallback_when_full;
+
+    if (source->format && source->format->apply_settings)
+        source->format->apply_settings (source->client, source->format, mountinfo);
+}
+
+
+/* update the specified source with details from the config or mount.
+ * mountinfo can be NULL in which case default settings should be taken
+ */
+void source_update_settings (ice_config_t *config, source_t *source, mount_proxy *mountinfo)
+{
+    /*  skip if source is a fallback to file */
+    if (source->running && source->client == NULL)
+    {
+        stats_event_hidden (source->mount, NULL, 1);
+        return;
+    }
+    /* set global settings first */
+    source->queue_size_limit = config->queue_size_limit;
+    source->timeout = config->source_timeout;
+    source->burst_size = config->burst_size;
+
+    source_apply_mount (source, mountinfo);
+
+    if (source->fallback_mount)
+        DEBUG1 ("fallback %s", source->fallback_mount);
+    if (mountinfo && mountinfo->intro_filename)
+        DEBUG1 ("intro file is %s", mountinfo->intro_filename);
+    if (source->dumpfilename)
+        DEBUG1 ("Dumping stream to %s", source->dumpfilename);
+    if (mountinfo && mountinfo->on_connect)
+        DEBUG1 ("connect script \"%s\"", mountinfo->on_connect);
+    if (mountinfo && mountinfo->on_disconnect)
+        DEBUG1 ("disconnect script \"%s\"", mountinfo->on_disconnect);
+    if (source->on_demand)
+    {
+        DEBUG0 ("on_demand set");
+        stats_event (source->mount, "on_demand", "1");
+    }
+    else
+        stats_event (source->mount, "on_demand", NULL);
+
+    if (source->hidden)
+    {
+        stats_event_hidden (source->mount, NULL, 1);
+        DEBUG0 ("hidden from xsl");
+    }
+    else
+        stats_event_hidden (source->mount, NULL, 0);
+
+    if (source->max_listeners == -1)
+        stats_event (source->mount, "max_listeners", "unlimited");
+    else
+    {
+        char buf [10];
+        snprintf (buf, sizeof (buf), "%ld", source->max_listeners);
+        stats_event (source->mount, "max_listeners", buf);
+    }
+    DEBUG1 ("public set to %d", source->yp_public);
+    DEBUG1 ("max listeners to %ld", source->max_listeners);
+    DEBUG1 ("queue size to %u", source->queue_size_limit);
+    DEBUG1 ("burst size to %u", source->burst_size);
+    DEBUG1 ("source timeout to %u", source->timeout);
+    DEBUG1 ("fallback_when_full to %u", source->fallback_when_full);
 }
 
 
 void *source_client_thread (void *arg)
 {
     source_t *source = arg;
-    const char ok_msg[] = "HTTP/1.0 200 OK\r\n\r\n";
-    int bytes;
 
-    source->client->respcode = 200;
-    bytes = sock_write_bytes (source->client->con->sock, ok_msg, sizeof (ok_msg)-1);
-    if (bytes < sizeof (ok_msg)-1)
+    stats_event_inc(NULL, "source_client_connections");
+    stats_event (source->mount, "listeners", "0");
+
+    source_main (source);
+
+    source_free_source (source);
+    source_recheck_mounts ();
+
+    return NULL;
+}
+
+
+void source_client_callback (client_t *client, void *arg)
+{
+    const char *agent;
+    source_t *source = arg;
+    refbuf_t *old_data = client->refbuf;
+
+    if (client->con->error)
     {
         global_lock();
         global.sources--;
         global_unlock();
-        WARN0 ("Error writing 200 OK message to source client");
+        source_clear_source (source);
+        source_free_source (source);
+        return;
     }
-    else
-    {
-        source->client->con->sent_bytes += bytes;
+    client->refbuf = old_data->associated;
+    old_data->associated = NULL;
+    refbuf_release (old_data);
+    stats_event (source->mount, "source_ip", source->client->con->ip);
+    agent = httpp_getvar (source->client->parser, "user-agent");
+    if (agent)
+        stats_event (source->mount, "user_agent", agent);
 
-        stats_event_inc(NULL, "source_client_connections");
-        source_main (source);
+    thread_create ("Source Thread", source_client_thread,
+            source, THREAD_DETACHED);
+}
+
+
+#ifndef _WIN32
+static void source_run_script (char *command, char *mountpoint)
+{
+    pid_t pid, external_pid;
+
+    /* do a fork twice so that the command has init as parent */
+    external_pid = fork();
+    switch (external_pid)
+    {
+        case 0:
+            switch (pid = fork ())
+            {
+                case -1:
+                    ERROR2 ("Unable to fork %s (%s)", command, strerror (errno));
+                    break;
+                case 0:  /* child */
+                    DEBUG1 ("Starting command %s", command);
+                    execl (command, command, mountpoint, (char *)NULL);
+                    ERROR2 ("Unable to run command %s (%s)", command, strerror (errno));
+                    exit(0);
+                default: /* parent */
+                    break;
+            }
+            exit (0);
+        case -1:
+            ERROR1 ("Unable to fork %s", strerror (errno));
+            break;
+        default: /* parent */
+            waitpid (external_pid, NULL, 0);
+            break;
     }
-    source_free_source (source);
+}
+#endif
+
+
+static void *source_fallback_file (void *arg)
+{
+    char *mount = arg;
+    char *type;
+    char *path;
+    unsigned int len;
+    FILE *file = NULL;
+    source_t *source = NULL;
+    ice_config_t *config;
+    http_parser_t *parser;
+
+    do
+    {
+        if (mount == NULL || mount[0] != '/')
+            break;
+        config = config_get_config();
+        len  = strlen (config->webroot_dir) + strlen (mount) + 1;
+        path = malloc (len);
+        if (path)
+            snprintf (path, len, "%s%s", config->webroot_dir, mount);
+        
+        config_release_config ();
+        if (path == NULL)
+            break;
+
+        file = fopen (path, "rb");
+        if (file == NULL)
+        {
+            DEBUG1 ("unable to open file \"%s\"", path);
+            free (path);
+            break;
+        }
+        free (path);
+        source = source_reserve (mount);
+        if (source == NULL)
+        {
+            DEBUG1 ("mountpoint \"%s\" already reserved", mount);
+            break;
+        }
+        type = fserve_content_type (mount);
+        parser = httpp_create_parser();
+        httpp_initialize (parser, NULL);
+        httpp_setvar (parser, "content-type", type);
+
+        source->hidden = 1;
+        source->yp_public = 0;
+        source->intro_file = file;
+        source->parser = parser;
+        file = NULL;
+
+        if (connection_complete_source (source, 0) < 0)
+            break;
+        source_client_thread (source);
+        httpp_destroy (parser);
+    } while (0);
+    if (file)
+        fclose (file);
+    free (mount);
     return NULL;
+}
+
+
+/* rescan the mount list, so that xsl files are updated to show
+ * unconnected but active fallback mountpoints
+ */
+void source_recheck_mounts (void)
+{
+    ice_config_t *config = config_get_config();
+    mount_proxy *mount = config->mounts;
+
+    avl_tree_rlock (global.source_tree);
+
+    while (mount)
+    {
+        source_t *source = source_find_mount (mount->mountname);
+
+        if (source)
+        {
+            source = source_find_mount_raw (mount->mountname);
+            if (source)
+            {
+                mount_proxy *mountinfo = config_find_mount (config, source->mount);
+                source_update_settings (config, source, mountinfo);
+            }
+            else
+            {
+                stats_event_hidden (mount->mountname, NULL, mount->hidden);
+                stats_event (mount->mountname, "listeners", "0");
+                if (mount->max_listeners < 0)
+                    stats_event (mount->mountname, "max_listeners", "unlimited");
+                else
+                    stats_event_args (mount->mountname, "max_listeners", "%d", mount->max_listeners);
+            }
+        }
+        else
+            stats_event (mount->mountname, NULL, NULL);
+
+        /* check for fallback to file */
+        if (global.running == ICE_RUNNING && mount->fallback_mount)
+        {
+            source_t *fallback = source_find_mount (mount->fallback_mount);
+            if (fallback == NULL)
+            {
+                thread_create ("Fallback file thread", source_fallback_file,
+                        strdup (mount->fallback_mount), THREAD_DETACHED);
+            }
+        }
+
+        mount = mount->next;
+    }
+    avl_tree_unlock (global.source_tree);
+    config_release_config();
 }
 

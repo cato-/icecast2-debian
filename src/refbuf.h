@@ -21,7 +21,7 @@
 typedef struct _refbuf_tag
 {
     char *data;
-    long len;
+    unsigned long len;
     int sync_point;
     struct _refbuf_tag *associated;
     struct _refbuf_tag *next;
@@ -35,6 +35,8 @@ void refbuf_shutdown(void);
 refbuf_t *refbuf_new(unsigned long size);
 void refbuf_addref(refbuf_t *self);
 void refbuf_release(refbuf_t *self);
+
+#define PER_CLIENT_REFBUF_SIZE  4096
 
 #endif  /* __REFBUF_H__ */
 

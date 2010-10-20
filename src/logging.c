@@ -32,6 +32,7 @@
 
 #ifdef _WIN32
 #define snprintf _snprintf
+#define vsnprintf _vsnprintf
 #endif
 
 /* the global log descriptors */
@@ -80,7 +81,7 @@ int get_clf_time (char *buffer, unsigned len, struct tm *t)
     else {
         sign = '+';
     }
-    
+
     timezone_string = calloc(1, 7);
     snprintf(timezone_string, 7, " %c%.2d%.2d", sign, time_tz / 60, time_tz % 60);
 
@@ -89,17 +90,16 @@ int get_clf_time (char *buffer, unsigned len, struct tm *t)
     thetime = localtime(&now);
     strftime (buffer, len-7, "%d/%b/%Y:%H:%M:%S", thetime);
     strcat(buffer, timezone_string);
-
+	free(timezone_string);
     return 1;
 }
 #endif
 /* 
-** ADDR USER AUTH DATE REQUEST CODE BYTES REFERER AGENT [TIME]
+** ADDR IDENT USER DATE REQUEST CODE BYTES REFERER AGENT [TIME]
 **
 ** ADDR = client->con->ip
-** USER = -      
-**      we should do this for real once we support authentication
-** AUTH = -
+** IDENT = always - , we don't support it because it's useless
+** USER = client->username    
 ** DATE = _make_date(client->con->con_time)
 ** REQUEST = build from client->parser
 ** CODE = client->respcode
@@ -115,15 +115,15 @@ void logging_access(client_t *client)
     struct tm thetime;
     time_t now;
     time_t stayed;
-    char *referrer, *user_agent;
+    char *referrer, *user_agent, *username;
 
     now = time(NULL);
 
-	localtime_r (&now, &thetime);
+    localtime_r (&now, &thetime);
     /* build the data */
 #ifdef _WIN32
-	memset(datebuf, '\000', sizeof(datebuf));
-	get_clf_time(datebuf, sizeof(datebuf)-1, &thetime);
+    memset(datebuf, '\000', sizeof(datebuf));
+    get_clf_time(datebuf, sizeof(datebuf)-1, &thetime);
 #else
     strftime (datebuf, sizeof(datebuf), LOGGING_FORMAT_CLF, &thetime);
 #endif
@@ -136,6 +136,11 @@ void logging_access(client_t *client)
 
     stayed = now - client->con->con_time;
 
+    if (client->username == NULL)
+        username = "-"; 
+    else
+        username = client->username;
+
     referrer = httpp_getvar (client->parser, "referer");
     if (referrer == NULL)
         referrer = "-";
@@ -144,20 +149,22 @@ void logging_access(client_t *client)
     if (user_agent == NULL)
         user_agent = "-";
 
-    log_write_direct (accesslog, "%s - - [%s] \"%s\" %d %lld \"%s\" \"%s\" %u",
-             client->con->ip,
-             datebuf,
-             reqbuf,
-             client->respcode,
-             client->con->sent_bytes,
-             referrer,
-             user_agent,
-             stayed);
+    log_write_direct (accesslog,
+            "%s - %s [%s] \"%s\" %d " FORMAT_UINT64 " \"%s\" \"%s\" %lu",
+            client->con->ip,
+            username,
+            datebuf,
+            reqbuf,
+            client->respcode,
+            client->con->sent_bytes,
+            referrer,
+            user_agent,
+            (unsigned long)stayed);
 }
 /* This function will provide a log of metadata for each
    mountpoint.  The metadata *must* be in UTF-8, and thus
    you can assume that the log itself is UTF-8 encoded */
-void logging_playlist(char *mount, char *metadata, long listeners)
+void logging_playlist(const char *mount, const char *metadata, long listeners)
 {
     char datebuf[128];
     struct tm thetime;
@@ -186,6 +193,20 @@ void logging_playlist(char *mount, char *metadata, long listeners)
              metadata);
 }
 
+
+void log_parse_failure (void *ctx, const char *fmt, ...)
+{
+    char line [200];
+    va_list ap;
+    char *eol;
+
+    va_start (ap, fmt);
+    vsnprintf (line, sizeof (line), fmt, ap);
+    eol = strrchr (line, '\n');
+    if (eol) *eol='\0';
+    va_end (ap);
+    log_write (errorlog, 2, (char*)ctx, "", "%s", line);
+}
 
 
 void restart_logging (ice_config_t *config)

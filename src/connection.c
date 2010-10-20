@@ -19,8 +19,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include <sys/types.h>
-#include <sys/stat.h>
 #ifdef HAVE_POLL
 #include <sys/poll.h>
 #endif
@@ -82,10 +80,13 @@
 #define SHOUTCAST_SOURCE_AUTH 1
 #define ICECAST_SOURCE_AUTH 0
 
-typedef struct con_queue_tag {
-    connection_t *con;
-    struct con_queue_tag *next;
-} con_queue_t;
+typedef struct client_queue_tag {
+    client_t *client;
+    int offset;
+    int stream_offset;
+    int shoutcast;
+    struct client_queue_tag *next;
+} client_queue_t;
 
 typedef struct _thread_queue_tag {
     thread_type *thread_id;
@@ -95,11 +96,12 @@ typedef struct _thread_queue_tag {
 static mutex_t _connection_mutex;
 static volatile unsigned long _current_id = 0;
 static int _initialized = 0;
+static thread_type *tid;
 
-volatile static con_queue_t *_queue = NULL;
-static mutex_t _queue_mutex;
-
-static thread_queue_t *_conhands = NULL;
+static volatile client_queue_t *_req_queue = NULL, **_req_queue_tail = &_req_queue;
+static volatile client_queue_t *_con_queue = NULL, **_con_queue_tail = &_con_queue;
+static mutex_t _con_queue_mutex;
+static mutex_t _req_queue_mutex;
 
 rwlock_t _source_shutdown_rwlock;
 
@@ -110,7 +112,8 @@ void connection_initialize(void)
     if (_initialized) return;
     
     thread_mutex_create(&_connection_mutex);
-    thread_mutex_create(&_queue_mutex);
+    thread_mutex_create(&_con_queue_mutex);
+    thread_mutex_create(&_req_queue_mutex);
     thread_mutex_create(&move_clients_mutex);
     thread_rwlock_create(&_source_shutdown_rwlock);
     thread_cond_create(&global.shutdown_cond);
@@ -124,7 +127,8 @@ void connection_shutdown(void)
     
     thread_cond_destroy(&global.shutdown_cond);
     thread_rwlock_destroy(&_source_shutdown_rwlock);
-    thread_mutex_destroy(&_queue_mutex);
+    thread_mutex_destroy(&_con_queue_mutex);
+    thread_mutex_destroy(&_req_queue_mutex);
     thread_mutex_destroy(&_connection_mutex);
     thread_mutex_destroy(&move_clients_mutex);
 
@@ -142,18 +146,18 @@ static unsigned long _next_connection_id(void)
     return id;
 }
 
-connection_t *create_connection(sock_t sock, sock_t serversock, char *ip) {
+connection_t *connection_create (sock_t sock, sock_t serversock, char *ip)
+{
     connection_t *con;
-    con = (connection_t *)malloc(sizeof(connection_t));
-    memset(con, 0, sizeof(connection_t));
-    con->sock = sock;
-    con->serversock = serversock;
-    con->con_time = time(NULL);
-    con->id = _next_connection_id();
-    con->ip = ip;
-
-    con->event_number = EVENT_NO_EVENT;
-    con->event = NULL;
+    con = (connection_t *)calloc(1, sizeof(connection_t));
+    if (con)
+    {
+        con->sock = sock;
+        con->serversock = serversock;
+        con->con_time = time(NULL);
+        con->id = _next_connection_id();
+        con->ip = ip;
+    }
 
     return con;
 }
@@ -256,8 +260,11 @@ static connection_t *_accept_connection(void)
     ip = (char *)malloc(MAX_ADDR_LEN);
 
     sock = sock_accept(serversock, ip, MAX_ADDR_LEN);
-    if (sock >= 0) {
-        con = create_connection(sock, serversock, ip);
+    if (sock >= 0)
+    {
+        con = connection_create (sock, serversock, ip);
+        if (con == NULL)
+            free (ip);
 
         return con;
     }
@@ -270,176 +277,210 @@ static connection_t *_accept_connection(void)
     return NULL;
 }
 
-static void _add_connection(connection_t *con)
-{
-    con_queue_t *node;
 
-    node = (con_queue_t *)malloc(sizeof(con_queue_t));
-    
-    thread_mutex_lock(&_queue_mutex);
-    node->con = con;
-    node->next = (con_queue_t *)_queue;
-    _queue = node;
-    thread_mutex_unlock(&_queue_mutex);
+/* add client to connection queue. At this point some header information
+ * has been collected, so we now pass it onto the connection thread for
+ * further processing
+ */
+static void _add_connection (client_queue_t *node)
+{
+    thread_mutex_lock (&_con_queue_mutex);
+    *_con_queue_tail = node;
+    _con_queue_tail = (volatile client_queue_t **)&node->next;
+    thread_mutex_unlock (&_con_queue_mutex);
 }
 
-static void _push_thread(thread_queue_t **queue, thread_type *thread_id)
+
+/* this returns queued clients for the connection thread. headers are
+ * already provided, but need to be parsed.
+ */
+static client_queue_t *_get_connection(void)
 {
-    /* create item */
-    thread_queue_t *item = (thread_queue_t *)malloc(sizeof(thread_queue_t));
-    item->thread_id = thread_id;
-    item->next = NULL;
+    client_queue_t *node = NULL;
 
-
-    thread_mutex_lock(&_queue_mutex);
-    if (*queue == NULL) {
-        *queue = item;
-    } else {
-        item->next = *queue;
-        *queue = item;
+    /* common case, no new connections so don't bother taking locks */
+    if (_con_queue)
+    {
+        thread_mutex_lock (&_con_queue_mutex);
+        node = (client_queue_t *)_con_queue;
+        _con_queue = node->next;
+        if (_con_queue == NULL)
+            _con_queue_tail = &_con_queue;
+        thread_mutex_unlock (&_con_queue_mutex);
     }
-    thread_mutex_unlock(&_queue_mutex);
+    return node;
 }
 
-static thread_type *_pop_thread(thread_queue_t **queue)
+
+/* run along queue checking for any data that has come in or a timeout */
+static void process_request_queue ()
 {
-    thread_type *id;
-    thread_queue_t *item;
-
-    thread_mutex_lock(&_queue_mutex);
-
-    item = *queue;
-    if (item == NULL) {
-        thread_mutex_unlock(&_queue_mutex);
-        return NULL;
-    }
-
-    *queue = item->next;
-    item->next = NULL;
-    id = item->thread_id;
-    free(item);
-
-    thread_mutex_unlock(&_queue_mutex);
-
-    return id;
-}
-
-static void _build_pool(void)
-{
-    ice_config_t *config;
-    int i;
-    thread_type *tid;
-    char buff[64];
-    int threadpool_size;
-
-    config = config_get_config();
-    threadpool_size = config->threadpool_size;
+    client_queue_t **node_ref = (client_queue_t **)&_req_queue;
+    ice_config_t *config = config_get_config ();
+    int timeout = config->header_timeout;
     config_release_config();
 
-    for (i = 0; i < threadpool_size; i++) {
-        snprintf(buff, 64, "Connection Thread #%d", i);
-        tid = thread_create(buff, _handle_connection, NULL, THREAD_ATTACHED);
-        _push_thread(&_conhands, tid);
+    while (*node_ref)
+    {
+        client_queue_t *node = *node_ref;
+        client_t *client = node->client;
+        int len = PER_CLIENT_REFBUF_SIZE - 1 - node->offset;
+        char *buf = client->refbuf->data + node->offset;
+
+        if (len > 0)
+        {
+            if (client->con->con_time + timeout <= time(NULL))
+                len = 0;
+            else
+                len = client_read_bytes (client, buf, len);
+        }
+
+        if (len > 0)
+        {
+            int pass_it = 1;
+            char *ptr;
+
+            node->offset += len;
+            client->refbuf->data [node->offset] = '\000';
+            do
+            {
+                if (node->shoutcast == 1)
+                {
+                    /* password line */
+                    if (strstr (client->refbuf->data, "\r\n") != NULL)
+                        break;
+                    if (strstr (client->refbuf->data, "\n") != NULL)
+                        break;
+                }
+                /* stream_offset refers to the start of any data sent after the
+                 * http style headers, we don't want to lose those */
+                ptr = strstr (client->refbuf->data, "\r\n\r\n");
+                if (ptr)
+                {
+                    node->stream_offset = (ptr+4) - client->refbuf->data;
+                    break;
+                }
+                ptr = strstr (client->refbuf->data, "\n\n");
+                if (ptr)
+                {
+                    node->stream_offset = (ptr+2) - client->refbuf->data;
+                    break;
+                }
+                pass_it = 0;
+            } while (0);
+
+            if (pass_it)
+            {
+                if ((client_queue_t **)_req_queue_tail == &(node->next))
+                    _req_queue_tail = (volatile client_queue_t **)node_ref;
+                *node_ref = node->next;
+                node->next = NULL;
+                _add_connection (node);
+            }
+        }
+        else
+        {
+            if (len == 0 || client->con->error)
+            {
+                if ((client_queue_t **)_req_queue_tail == &node->next)
+                    _req_queue_tail = (volatile client_queue_t **)node_ref;
+                *node_ref = node->next;
+                client_destroy (client);
+                free (node);
+                continue;
+            }
+        }
+        node_ref = &node->next;
     }
 }
 
-static void _destroy_pool(void)
+
+/* add node to the queue of requests. This is where the clients are when
+ * initial http details are read.
+ */
+static void _add_request_queue (client_queue_t *node)
 {
-    thread_type *id;
-    int i;
-
-    i = 0;
-
-    id = _pop_thread(&_conhands);
-    while (id != NULL) {
-        thread_join(id);
-        id = _pop_thread(&_conhands);
-    }
-    INFO0("All connection threads down");
+    thread_mutex_lock (&_req_queue_mutex);
+    *_req_queue_tail = node;
+    _req_queue_tail = (volatile client_queue_t **)&node->next;
+    thread_mutex_unlock (&_req_queue_mutex);
 }
+
 
 void connection_accept_loop(void)
 {
     connection_t *con;
 
-    _build_pool();
+    tid = thread_create ("connection thread", _handle_connection, NULL, THREAD_ATTACHED);
 
     while (global.running == ICE_RUNNING)
     {
-        if (global . schedule_config_reread)
-        {
-            /* reread config file */
-            INFO0("Scheduling config reread ...");
-
-            connection_inject_event(EVENT_CONFIG_READ, NULL);
-            global . schedule_config_reread = 0;
-        }
-
         con = _accept_connection();
 
-        if (con) {
-            _add_connection(con);
+        if (con)
+        {
+            client_queue_t *node;
+            ice_config_t *config;
+            int i;
+            client_t *client = NULL;
+
+            global_lock();
+            if (client_create (&client, con, NULL) < 0)
+            {
+                global_unlock();
+                client_send_404 (client, "Icecast connection limit reached");
+                continue;
+            }
+            global_unlock();
+
+            /* setup client for reading incoming http */
+            client->refbuf->data [PER_CLIENT_REFBUF_SIZE-1] = '\000';
+
+            node = calloc (1, sizeof (client_queue_t));
+            if (node == NULL)
+            {
+                client_destroy (client);
+                continue;
+            }
+            node->client = client;
+
+            /* Check for special shoutcast compatability processing */
+            config = config_get_config();
+            for (i = 0; i < global.server_sockets; i++)
+            {
+                if (global.serversock[i] == con->serversock)
+                {
+                    if (config->listeners[i].shoutcast_compat)
+                        node->shoutcast = 1;
+                }
+            }
+            config_release_config(); 
+
+            sock_set_blocking (client->con->sock, SOCK_NONBLOCK);
+            sock_set_nodelay (client->con->sock);
+
+            _add_request_queue (node);
+            stats_event_inc (NULL, "connections");
         }
+        process_request_queue ();
     }
 
     /* Give all the other threads notification to shut down */
     thread_cond_broadcast(&global.shutdown_cond);
 
-    _destroy_pool();
+    if (tid)
+        thread_join (tid);
 
     /* wait for all the sources to shutdown */
     thread_rwlock_wlock(&_source_shutdown_rwlock);
     thread_rwlock_unlock(&_source_shutdown_rwlock);
 }
 
-static connection_t *_get_connection(void)
-{
-    con_queue_t *node = NULL;
-    con_queue_t *oldnode = NULL;
-    connection_t *con = NULL;
-
-    /* common case, no new connections so don't bother taking locks */
-    if (_queue == NULL)
-        return NULL;
-
-    thread_mutex_lock(&_queue_mutex);
-    if (_queue) {
-        node = (con_queue_t *)_queue;
-        while (node->next) {
-            oldnode = node;
-            node = node->next;
-        }
-        
-        /* node is now the last node
-        ** and oldnode is the previous one, or NULL
-        */
-        if (oldnode) oldnode->next = NULL;
-        else (_queue) = NULL;
-    }
-    thread_mutex_unlock(&_queue_mutex);
-
-    if (node) {
-        con = node->con;
-        free(node);
-    }
-
-    return con;
-}
-
-void connection_inject_event(int eventnum, void *event_data) {
-    connection_t *con = calloc(1, sizeof(connection_t));
-
-    con->event_number = eventnum;
-    con->event = event_data;
-
-    _add_connection(con);
-}
-
 
 /* Called when activating a source. Verifies that the source count is not
  * exceeded and applies any initial parameters.
  */
-int connection_complete_source (source_t *source)
+int connection_complete_source (source_t *source, int response)
 {
     ice_config_t *config = config_get_config();
 
@@ -449,7 +490,7 @@ int connection_complete_source (source_t *source)
     if (global.sources < config->source_limit)
     {
         char *contenttype;
-        mount_proxy *mountproxy = config->mounts;
+        mount_proxy *mountinfo;
         format_type_t format_type;
 
         /* setup format handler */
@@ -462,8 +503,11 @@ int connection_complete_source (source_t *source)
             {
                 global_unlock();
                 config_release_config();
-                if (source->client)
+                if (response)
+                {
                     client_send_404 (source->client, "Content-type not supported");
+                    source->client = NULL;
+                }
                 WARN1("Content-type \"%s\" not supported, dropping source", contenttype);
                 return -1;
             }
@@ -479,37 +523,24 @@ int connection_complete_source (source_t *source)
         {
             global_unlock();
             config_release_config();
-            if (source->client)
+            if (response)
+            {
                 client_send_404 (source->client, "internal format allocation problem");
+                source->client = NULL;
+            }
             WARN1 ("plugin format failed for \"%s\"", source->mount);
             return -1;
         }
 
         global.sources++;
+        stats_event_args (NULL, "sources", "%d", global.sources);
         global_unlock();
 
-        /* set global settings first */
-        source->queue_size_limit = config->queue_size_limit;
-        source->timeout = config->source_timeout;
-        source->burst_size = config->burst_size;
-
-        /* for relays, we don't yet have a client, however we do require one
-         * to retrieve the stream from.  This is created here, quite late,
-         * because we can't use this client to return an error code/message,
-         * so we only do this once we know we're going to accept the source.
-         */
-        if (source->client == NULL)
-            source->client = client_create (source->con, source->parser);
-
-        while (mountproxy)
-        {
-            if (strcmp (mountproxy->mountname, source->mount) == 0)
-            {
-                source_apply_mount (source, mountproxy);
-                break;
-            }
-            mountproxy = mountproxy->next;
-        }
+        source->running = 1;
+        mountinfo = config_find_mount (config, source->mount);
+        if (mountinfo == NULL)
+            source_update_settings (config, source, mountinfo);
+        source_recheck_mounts ();
         config_release_config();
 
         source->shutdown_rwlock = &_source_shutdown_rwlock;
@@ -523,8 +554,11 @@ int connection_complete_source (source_t *source)
     global_unlock();
     config_release_config();
 
-    if (source->client)
+    if (response)
+    {
         client_send_404 (source->client, "too many sources connected");
+        source->client = NULL;
+    }
 
     return -1;
 }
@@ -624,7 +658,7 @@ int connection_check_relay_pass(http_parser_t *parser)
     int ret;
     ice_config_t *config = config_get_config();
     char *pass = config->relay_password;
-    char *user = "relay";
+    char *user = config->relay_username;
 
     if(!pass || !user) {
         config_release_config();
@@ -636,7 +670,7 @@ int connection_check_relay_pass(http_parser_t *parser)
     return ret;
 }
 
-int connection_check_source_pass(http_parser_t *parser, char *mount)
+int connection_check_source_pass(http_parser_t *parser, const char *mount)
 {
     ice_config_t *config = config_get_config();
     char *pass = config->source_password;
@@ -645,21 +679,15 @@ int connection_check_source_pass(http_parser_t *parser, char *mount)
     int ice_login = config->ice_login;
     char *protocol;
 
-    mount_proxy *mountinfo = config->mounts;
-    thread_mutex_lock(&(config_locks()->mounts_lock));
+    mount_proxy *mountinfo = config_find_mount (config, mount);
 
-    while(mountinfo) {
-        if(!strcmp(mountinfo->mountname, mount)) {
-            if(mountinfo->password)
-                pass = mountinfo->password;
-            if(mountinfo->username)
-                user = mountinfo->username;
-            break;
-        }
-        mountinfo = mountinfo->next;
+    if (mountinfo)
+    {
+        if (mountinfo->password)
+            pass = mountinfo->password;
+        if (mountinfo->username)
+            user = mountinfo->username;
     }
-
-    thread_mutex_unlock(&(config_locks()->mounts_lock));
 
     if(!pass) {
         WARN0("No source password set, rejecting source");
@@ -685,25 +713,21 @@ int connection_check_source_pass(http_parser_t *parser, char *mount)
 }
 
 
-static void _handle_source_request(connection_t *con, 
-        http_parser_t *parser, char *uri, int auth_style)
+static void _handle_source_request (client_t *client, char *uri, int auth_style)
 {
-    client_t *client;
     source_t *source;
 
-    client = client_create(con, parser);
-
     INFO1("Source logging in at mountpoint \"%s\"", uri);
-                
+
     if (uri[0] != '/')
     {
         WARN0 ("source mountpoint not starting with /");
         client_send_401 (client);
         return;
     }
-
     if (auth_style == ICECAST_SOURCE_AUTH) {
-        if (!connection_check_source_pass(parser, uri)) {
+        if (connection_check_source_pass (client->parser, uri) == 0)
+        {
             /* We commonly get this if the source client is using the wrong
              * protocol: attempt to diagnose this and return an error
              */
@@ -720,16 +744,25 @@ static void _handle_source_request(connection_t *con,
             source->shoutcast_compat = 1;
         }
         source->client = client;
-        source->parser = parser;
-        source->con = con;
-        if (connection_complete_source (source) < 0)
+        source->parser = client->parser;
+        source->con = client->con;
+        if (connection_complete_source (source, 1) < 0)
         {
-            source->client = NULL;
+            source_clear_source (source);
             source_free_source (source);
         }
         else
-            thread_create ("Source Thread", source_client_thread,
-                    source, THREAD_DETACHED);
+        {
+            refbuf_t *ok = refbuf_new (PER_CLIENT_REFBUF_SIZE);
+            client->respcode = 200;
+            snprintf (ok->data, PER_CLIENT_REFBUF_SIZE,
+                    "HTTP/1.0 200 OK\r\n\r\n");
+            ok->len = strlen (ok->data);
+            /* we may have unprocessed data read in, so don't overwrite it */
+            ok->associated = client->refbuf;
+            client->refbuf = ok;
+            fserve_add_client_callback (client, source_client_callback, source);
+        }
     }
     else
     {
@@ -739,63 +772,46 @@ static void _handle_source_request(connection_t *con,
 }
 
 
-static void _handle_stats_request(connection_t *con, 
-        http_parser_t *parser, char *uri)
+static void _handle_stats_request (client_t *client, char *uri)
 {
-    stats_connection_t *stats;
-
     stats_event_inc(NULL, "stats_connections");
-                
-    if (!connection_check_admin_pass(parser)) {
+
+    if (connection_check_admin_pass (client->parser) == 0)
+    {
+        client_send_401 (client);
         ERROR0("Bad password for stats connection");
-        connection_close(con);
-        httpp_destroy(parser);
         return;
     }
-                    
-    stats_event_inc(NULL, "stats");
-                    
-    /* create stats connection and create stats handler thread */
-    stats = (stats_connection_t *)malloc(sizeof(stats_connection_t));
-    stats->parser = parser;
-    stats->con = con;
-                    
-    thread_create("Stats Connection", stats_connection, (void *)stats, THREAD_DETACHED);
+
+    client->respcode = 200;
+    snprintf (client->refbuf->data, PER_CLIENT_REFBUF_SIZE,
+            "HTTP/1.0 200 OK\r\n\r\n");
+    client->refbuf->len = strlen (client->refbuf->data);
+    fserve_add_client_callback (client, stats_callback, NULL);
 }
 
-static void _handle_get_request(connection_t *con,
-        http_parser_t *parser, char *passed_uri)
+static void _handle_get_request (client_t *client, char *passed_uri)
 {
-    char *fullpath;
-    client_t *client;
-    int bytes;
-    struct stat statbuf;
-    source_t *source;
     int fileserve;
-    char *host;
     int port;
     int i;
     char *serverhost = NULL;
     int serverport = 0;
     aliases *alias;
     ice_config_t *config;
-    int client_limit;
-    int ret;
     char *uri = passed_uri;
 
     config = config_get_config();
     fileserve = config->fileserve;
-    host = config->hostname;
     port = config->port;
-    for(i = 0; i < MAX_LISTEN_SOCKETS; i++) {
-        if(global.serversock[i] == con->serversock) {
+    for(i = 0; i < global.server_sockets; i++) {
+        if(global.serversock[i] == client->con->serversock) {
             serverhost = config->listeners[i].bind_address;
             serverport = config->listeners[i].port;
             break;
         }
     }
     alias = config->aliases;
-    client_limit = config->client_limit;
 
     /* there are several types of HTTP GET clients
     ** media clients, which are looking for a source (eg, URI = /stream.ogg)
@@ -818,8 +834,6 @@ static void _handle_get_request(connection_t *con,
     }
     config_release_config();
 
-    /* make a client */
-    client = client_create(con, parser);
     stats_event_inc(NULL, "client_connections");
 
     /* Dispatch all admin requests */
@@ -834,342 +848,187 @@ static void _handle_get_request(connection_t *con,
     ** if the extension is .xsl, if so, then process
     ** this request as an XSLT request
     */
-    fullpath = util_get_path_from_normalised_uri(uri);
-    if (util_check_valid_extension(fullpath) == XSLT_CONTENT) {
-        /* If the file exists, then transform it, otherwise, write a 404 */
-        if (stat(fullpath, &statbuf) == 0) {
-            DEBUG0("Stats request, sending XSL transformed stats");
-            client->respcode = 200;
-            bytes = sock_write(client->con->sock, 
-                    "HTTP/1.0 200 OK\r\nContent-Type: text/html\r\n\r\n");
-            if(bytes > 0) client->con->sent_bytes = bytes;
-            stats_transform_xslt(client, fullpath);
-            client_destroy(client);
-        }
-        else {
-            client_send_404(client, "The file you requested could not be found");
-        }
-        free(fullpath);
-        if (uri != passed_uri) free (uri);
-        return;
-    }
-    else if(fileserve && stat(fullpath, &statbuf) == 0 && 
-#ifdef _WIN32
-            ((statbuf.st_mode) & _S_IFREG))
-#else
-            S_ISREG(statbuf.st_mode)) 
-#endif
+    if (util_check_valid_extension (uri) == XSLT_CONTENT)
     {
-        fserve_client_create(client, fullpath);
-        free(fullpath);
-        if (uri != passed_uri) free (uri);
-        return;
-    }
-    free(fullpath);
-
-    if(strcmp(util_get_extension(uri), "m3u") == 0) {
-        char *sourceuri = strdup(uri);
-        char *dot = strrchr(sourceuri, '.');
-        *dot = 0;
-        client->respcode = 200;
-        bytes = sock_write(client->con->sock,
-                    "HTTP/1.0 200 OK\r\n"
-                    "Content-Type: audio/x-mpegurl\r\n\r\n"
-                    "http://%s:%d%s\r\n", 
-                    host, 
-                    port,
-                    sourceuri
-                    );
-        if(bytes > 0) client->con->sent_bytes = bytes;
-        client_destroy(client);
-        free(sourceuri);
+        /* If the file exists, then transform it, otherwise, write a 404 */
+        DEBUG0("Stats request, sending XSL transformed stats");
+        stats_transform_xslt (client, uri);
         if (uri != passed_uri) free (uri);
         return;
     }
 
-    global_lock();
-    if (global.clients >= client_limit) {
-        global_unlock();
-        client_send_404(client,
-                "The server is already full. Try again later.");
-        if (uri != passed_uri) free (uri);
-        return;
-    }
-    global_unlock();
-                    
-    avl_tree_rlock(global.source_tree);
-    source = source_find_mount(uri);
-    if (source) {
-        DEBUG0("Source found for client");
-
-        /* The source may not be the requested source - it might have gone
-         * via one or more fallbacks. We only reject it for no-mount if it's
-         * the originally requested source
-         */
-        if(strcmp(uri, source->mount) == 0 && source->no_mount) {
-            avl_tree_unlock(global.source_tree);
-            client_send_404(client, "This mount is unavailable.");
-            if (uri != passed_uri) free (uri);
-            return;
-        }
-        if (source->running == 0)
-        {
-            avl_tree_unlock(global.source_tree);
-            DEBUG0("inactive source, client dropped");
-            client_send_404(client, "This mount is unavailable.");
-            if (uri != passed_uri) free (uri);
-            return;
-        }
-
-        /* Check for any required authentication first */
-        if(source->authenticator != NULL) {
-            ret = auth_check_client(source, client);
-            if(ret != AUTH_OK) {
-                avl_tree_unlock(global.source_tree);
-                if (ret == AUTH_FORBIDDEN) {
-                    INFO1("Client attempted to log multiple times to source "
-                        "(\"%s\")", uri);
-                    client_send_403(client);
-                }
-                else {
-                /* If not FORBIDDEN, default to 401 */
-                    INFO1("Client attempted to log in to source (\"%s\")with "
-                        "incorrect or missing password", uri);
-                    client_send_401(client);
-                }
-                if (uri != passed_uri) free (uri);
-                return;
-            }
-        }
-
-        /* And then check that there's actually room in the server... */
-        global_lock();
-        if (global.clients >= client_limit) {
-            global_unlock();
-            avl_tree_unlock(global.source_tree);
-            client_send_404(client, 
-                    "The server is already full. Try again later.");
-            if (uri != passed_uri) free (uri);
-            return;
-        }
-        /* Early-out for per-source max listeners. This gets checked again
-         * by the source itself, later. This route gives a useful message to
-         * the client, also.
-         */
-        else if(source->max_listeners != -1 && 
-                source->listeners >= source->max_listeners) 
-        {
-            global_unlock();
-            avl_tree_unlock(global.source_tree);
-            client_send_404(client, 
-                    "Too many clients on this mountpoint. Try again later.");
-            if (uri != passed_uri) free (uri);
-            return;
-        }
-        global.clients++;
-        global_unlock();
-                        
-        source->format->create_client_data (source, client);
-
-        source->format->client_send_headers(source->format, source, client);
-                        
-        bytes = sock_write(client->con->sock, "\r\n");
-        if(bytes > 0) client->con->sent_bytes += bytes;
-                            
-        sock_set_blocking(client->con->sock, SOCK_NONBLOCK);
-        sock_set_nodelay(client->con->sock);
-                        
-        avl_tree_wlock(source->pending_tree);
-        avl_insert(source->pending_tree, (void *)client);
-        avl_tree_unlock(source->pending_tree);
-    }
-                    
-    avl_tree_unlock(global.source_tree);
-                    
-    if (!source) {
-        DEBUG0("Source not found for client");
-        client_send_404(client, "The source you requested could not be found.");
-    }
+    add_client (uri, client);
     if (uri != passed_uri) free (uri);
 }
 
-void _handle_shoutcast_compatible(connection_t *con, char *mount, char *source_password) {
-    char shoutcast_password[256];
+static void _handle_shoutcast_compatible (client_queue_t *node)
+{
     char *http_compliant;
     int http_compliant_len = 0;
-    char header[4096];
     http_parser_t *parser;
+    ice_config_t *config = config_get_config ();
+    char *shoutcast_mount;
+    client_t *client = node->client;
 
-    memset(shoutcast_password, 0, sizeof (shoutcast_password));
-    /* Step one of shoutcast auth protocol, read encoder password (1 line) */
-    if (util_read_header(con->sock, shoutcast_password, 
-            sizeof (shoutcast_password), 
-            READ_LINE) == 0) {
-        /* either we didn't get a complete line, or we timed out */
-        connection_close(con);
-        return;
-    }
-    /* Get rid of trailing \n */
-    shoutcast_password[strlen(shoutcast_password)-1] = '\000';
-    if (strcmp(shoutcast_password, source_password)) {
-        ERROR0("Invalid source password");
-        connection_close(con);
-        return;
-    }
-    /* Step two of shoutcast auth protocol, send OK2.  For those
-       interested, OK2 means it supports metadata updates via admin.cgi,
-       and the string "OK" can also be sent, but will indicate to the
-       shoutcast source client to not send metadata updates.
-       I believe icecast 1.x used to send OK. */
-    sock_write(con->sock, "%s\r\n", "OK2");
+    if (node->shoutcast == 1)
+    {
+        char *source_password, *ptr;
+        mount_proxy *mountinfo = config_find_mount (config, config->shoutcast_mount);
 
-    memset(header, 0, sizeof (header));
-    /* Step three of shoutcast auth protocol, read HTTP-style
-       request headers and process them.*/
-    if (util_read_header(con->sock, header, sizeof (header), 
-                         READ_ENTIRE_HEADER) == 0) {
-        /* either we didn't get a complete header, or we timed out */
-        connection_close(con);
+        if (mountinfo && mountinfo->password)
+            source_password = strdup (mountinfo->password);
+        else
+            source_password = strdup (config->source_password);
+        config_release_config();
+
+        /* Get rid of trailing \r\n or \n after password */
+        ptr = strstr (client->refbuf->data, "\r\n");
+        if (ptr == NULL)
+            ptr = strstr (client->refbuf->data, "\n");
+
+        if (ptr == NULL)
+        {
+            client_destroy (client);
+            free (source_password);
+            free (node);
+            return;
+        }
+        *ptr = '\0';
+
+        if (strcmp (client->refbuf->data, source_password) == 0)
+        {
+            client->respcode = 200;
+            /* send this non-blocking but if there is only a partial write
+             * then leave to header timeout */
+            sock_write (client->con->sock, "OK2\r\n");
+            memset (client->refbuf->data, 0, client->refbuf->len);
+            node->shoutcast = 2;
+            node->offset = 0;
+            /* we've checked the password, now send it back for reading headers */
+            _add_request_queue (node);
+            free (source_password);
+            return;
+        }
+        client_destroy (client);
+        free (node);
         return;
     }
+    shoutcast_mount = strdup (config->shoutcast_mount);
+    config_release_config();
     /* Here we create a valid HTTP request based of the information
        that was passed in via the non-HTTP style protocol above. This
        means we can use some of our existing code to handle this case */
-    http_compliant_len = strlen(header) + strlen(mount) + 20;
+    http_compliant_len = 20 + strlen (shoutcast_mount) + node->offset;
     http_compliant = (char *)calloc(1, http_compliant_len);
     snprintf (http_compliant, http_compliant_len,
-            "SOURCE %s HTTP/1.0\r\n%s", mount, header);
+            "SOURCE %s HTTP/1.0\r\n%s", shoutcast_mount, client->refbuf->data);
     parser = httpp_create_parser();
     httpp_initialize(parser, NULL);
-    if (httpp_parse(parser, http_compliant, strlen(http_compliant))) {
-        _handle_source_request(con, parser, mount, SHOUTCAST_SOURCE_AUTH);
-        free(http_compliant);
-        return;
+    if (httpp_parse (parser, http_compliant, strlen(http_compliant)))
+    {
+        /* we may have more than just headers, so prepare for it */
+        if (node->stream_offset == node->offset)
+            client->refbuf->len = 0;
+        else
+        {
+            char *ptr = client->refbuf->data;
+            client->refbuf->len = node->offset - node->stream_offset;
+            memmove (ptr, ptr + node->stream_offset, client->refbuf->len);
+        }
+        client->parser = parser;
+        _handle_source_request (client, shoutcast_mount, SHOUTCAST_SOURCE_AUTH);
     }
-    else {
-        ERROR0("Invalid source request");
-        connection_close(con);
-        free(http_compliant);
-        httpp_destroy(parser);
-        return;
-    }
+    else
+        client_destroy (client);
+    free (http_compliant);
+    free (shoutcast_mount);
+    free (node);
     return;
 }
 
+
+/* Connection thread. Here we take clients off the connection queue and check
+ * the contents provided. We set up the parser then hand off to the specific
+ * request handler.
+ */
 static void *_handle_connection(void *arg)
 {
-    char header[4096];
-    connection_t *con;
     http_parser_t *parser;
     char *rawuri, *uri;
-    client_t *client;
-    int i = 0;
-    int continue_flag = 0;
-    ice_config_t *config;
-    char *source_password;
 
     while (global.running == ICE_RUNNING) {
 
-        /* grab a connection and set the socket to blocking */
-        while ((con = _get_connection())) {
+        client_queue_t *node = _get_connection();
 
-            /* Handle meta-connections */
-            if(con->event_number > 0) {
-                switch(con->event_number) {
-                    case EVENT_CONFIG_READ:
-                        event_config_read(con->event);
-                        break;
-                    default:
-                        ERROR1("Unknown event number: %d", con->event_number);
-                        break;
-                }
-                free(con);
-                continue;
-            }
+        if (node)
+        {
+            client_t *client = node->client;
 
-            stats_event_inc(NULL, "connections");
-
-            sock_set_blocking(con->sock, SOCK_BLOCK);
-
-            continue_flag = 0;
             /* Check for special shoutcast compatability processing */
-            for(i = 0; i < MAX_LISTEN_SOCKETS; i++) {
-                if(global.serversock[i] == con->serversock) {
-                    config = config_get_config();
-                    if (config->listeners[i].shoutcast_compat) {
-                        char *shoutcast_mount = strdup (config->shoutcast_mount);
-                        source_password = strdup(config->source_password);
-                        config_release_config();
-                        _handle_shoutcast_compatible(con, shoutcast_mount, source_password);
-                        free(source_password);
-                        free (shoutcast_mount);
-                        continue_flag = 1;
-                        break;
-                    }
-                    config_release_config();
-                }
-            }
-            if(continue_flag) {
+            if (node->shoutcast) 
+            {
+                _handle_shoutcast_compatible (node);
                 continue;
             }
 
-            /* fill header with the http header */
-            memset(header, 0, sizeof (header));
-            if (util_read_header(con->sock, header, sizeof (header), 
-                                 READ_ENTIRE_HEADER) == 0) {
-                /* either we didn't get a complete header, or we timed out */
-                connection_close(con);
-                continue;
-            }
-
+            /* process normal HTTP headers */
             parser = httpp_create_parser();
             httpp_initialize(parser, NULL);
-            if (httpp_parse(parser, header, strlen(header))) {
-                /* handle the connection or something */
+            client->parser = parser;
+            if (httpp_parse (parser, client->refbuf->data, node->offset))
+            {
+                /* we may have more than just headers, so prepare for it */
+                if (node->stream_offset == node->offset)
+                    client->refbuf->len = 0;
+                else
+                {
+                    char *ptr = client->refbuf->data;
+                    client->refbuf->len = node->offset - node->stream_offset;
+                    memmove (ptr, ptr + node->stream_offset, client->refbuf->len);
+                }
+                free (node);
                 
                 if (strcmp("ICE",  httpp_getvar(parser, HTTPP_VAR_PROTOCOL)) &&
                     strcmp("HTTP", httpp_getvar(parser, HTTPP_VAR_PROTOCOL))) {
                     ERROR0("Bad HTTP protocol detected");
-                    connection_close(con);
-                    httpp_destroy(parser);
+                    client_destroy (client);
                     continue;
                 }
 
                 rawuri = httpp_getvar(parser, HTTPP_VAR_URI);
                 uri = util_normalise_uri(rawuri);
 
-                if(!uri) {
-                    client = client_create(con, parser);
-                    client_send_404(client, "The path you requested was invalid");
+                if (uri == NULL)
+                {
+                    client_destroy (client);
                     continue;
                 }
 
                 if (parser->req_type == httpp_req_source) {
-                    _handle_source_request(con, parser, uri, ICECAST_SOURCE_AUTH);
+                    _handle_source_request (client, uri, ICECAST_SOURCE_AUTH);
                 }
                 else if (parser->req_type == httpp_req_stats) {
-                    _handle_stats_request(con, parser, uri);
+                    _handle_stats_request (client, uri);
                 }
                 else if (parser->req_type == httpp_req_get) {
-                    _handle_get_request(con, parser, uri);
+                    _handle_get_request (client, uri);
                 }
                 else {
                     ERROR0("Wrong request type from client");
-                    connection_close(con);
-                    httpp_destroy(parser);
+                    client_send_400 (client, "unknown request");
                 }
 
                 free(uri);
-                continue;
             } 
-            else {
+            else
+            {
+                free (node);
                 ERROR0("HTTP request parsing failed");
-                connection_close(con);
-                httpp_destroy(parser);
-                continue;
+                client_destroy (client);
             }
+            continue;
         }
-        thread_sleep (100000);
+        thread_sleep (50000);
     }
     DEBUG0 ("Connection thread done");
 

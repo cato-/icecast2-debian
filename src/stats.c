@@ -35,6 +35,7 @@
 #include "client.h"
 #include "stats.h"
 #include "xslt.h"
+#include "util.h"
 #define CATMODULE "stats"
 #include "logging.h"
 
@@ -58,17 +59,17 @@ typedef struct _event_listener_tag
     struct _event_listener_tag *next;
 } event_listener_t;
 
-volatile static int _stats_running = 0;
+static volatile int _stats_running = 0;
 static thread_type *_stats_thread_id;
-volatile static int _stats_threads = 0;
+static volatile int _stats_threads = 0;
 
 static stats_t _stats;
 static mutex_t _stats_mutex;
 
-volatile static stats_event_t *_global_event_queue;
+static volatile stats_event_t *_global_event_queue;
 mutex_t _global_event_mutex;
 
-volatile static event_listener_t *_event_listeners;
+static volatile event_listener_t *_event_listeners;
 
 
 static void *_stats_thread(void *arg);
@@ -419,6 +420,8 @@ static void modify_node_event (stats_node_t *node, stats_event_t *event)
         }
         str = malloc (16);
         snprintf (str, 16, "%d", value);
+        if (event->value == NULL)
+            event->value = strdup (str);
     }
     else
         str = (char *)strdup (event->value);
@@ -531,6 +534,18 @@ static void process_source_event (stats_event_t *event)
 }
 
 
+void stats_event_time (const char *mount, const char *name)
+{
+    time_t now = time(NULL);
+    struct tm local; 
+    char buffer[100];
+
+    localtime_r (&now, &local);
+    strftime (buffer, sizeof (buffer), "%a, %d %b %Y %H:%M:%S %z", &local);
+    stats_event (mount, name, buffer);
+}
+
+
 static void *_stats_thread(void *arg)
 {
     stats_event_t *event;
@@ -538,6 +553,7 @@ static void *_stats_thread(void *arg)
     event_listener_t *listener;
 
     stats_event (NULL, "server", ICECAST_VERSION_STRING);
+    stats_event_time (NULL, "server_start");
 
     /* global currently active stats */
     stats_event (NULL, "clients", "0");
@@ -551,6 +567,7 @@ static void *_stats_thread(void *arg)
     stats_event (NULL, "source_relay_connections", "0");
     stats_event (NULL, "source_total_connections", "0");
     stats_event (NULL, "stats_connections", "0");
+    stats_event (NULL, "listener_connections", "0");
 
     INFO0 ("stats thread started");
     while (_stats_running) {
@@ -595,6 +612,25 @@ static void *_stats_thread(void *arg)
 
     return NULL;
 }
+
+/* you must have the _stats_mutex locked here */
+static void _unregister_listener(stats_event_t **queue)
+{
+    event_listener_t **prev = (event_listener_t **)&_event_listeners,
+                     *current = *prev;
+    while (current)
+    {
+        if (current->queue == queue)
+        {
+            *prev = current->next;
+            free (current);
+            break;
+        }
+        prev = &current->next;
+        current = *prev;
+    }
+}
+
 
 /* you must have the _stats_mutex locked here */
 static void _register_listener(stats_event_t **queue, mutex_t *mutex)
@@ -658,15 +694,18 @@ static stats_event_t *_get_event_from_queue(stats_event_t **queue)
     return event;
 }
 
-static int _send_event_to_client(stats_event_t *event, connection_t *con)
+static int _send_event_to_client(stats_event_t *event, client_t *client)
 {
-    int ret;
+    int ret = -1, len;
+    char buf [200];
 
     /* send data to the client!!!! */
-    ret = sock_write(con->sock, "EVENT %s %s %s\n",
+    len = snprintf (buf, sizeof (buf), "EVENT %s %s %s\n",
             (event->source != NULL) ? event->source : "global",
             event->name ? event->name : "null",
             event->value ? event->value : "null");
+    if (len > 0 && len < (int)sizeof (buf))
+        ret = client_send_bytes (client, buf, len);
 
     return (ret == -1) ? 0 : 1;
 }
@@ -754,14 +793,17 @@ static void _atomic_get_and_register(stats_event_t **queue, mutex_t *mutex)
 
 void *stats_connection(void *arg)
 {
-    stats_connection_t *statcon = (stats_connection_t *)arg;
+    client_t *client = (client_t *)arg;
     stats_event_t *local_event_queue = NULL;
     mutex_t local_event_mutex;
     stats_event_t *event;
 
+    INFO0 ("stats client starting");
+
     /* increment the thread count */
     thread_mutex_lock(&_stats_mutex);
     _stats_threads++;
+    stats_event_args (NULL, "stats", "%d", _stats_threads);
     thread_mutex_unlock(&_stats_mutex);
 
     thread_mutex_create(&local_event_mutex);
@@ -772,7 +814,7 @@ void *stats_connection(void *arg)
         thread_mutex_lock(&local_event_mutex);
         event = _get_event_from_queue(&local_event_queue);
         if (event != NULL) {
-            if (!_send_event_to_client(event, statcon->con)) {
+            if (!_send_event_to_client(event, client)) {
                 _free_event(event);
                 thread_mutex_unlock(&local_event_mutex);
                 break;
@@ -787,14 +829,31 @@ void *stats_connection(void *arg)
         thread_mutex_unlock(&local_event_mutex);
     }
 
-    thread_mutex_destroy(&local_event_mutex);
-
     thread_mutex_lock(&_stats_mutex);
+    _unregister_listener (&local_event_queue);
     _stats_threads--;
+    stats_event_args (NULL, "stats", "%d", _stats_threads);
     thread_mutex_unlock(&_stats_mutex);
+
+    thread_mutex_destroy(&local_event_mutex);
+    client_destroy (client);
+    INFO0 ("stats client finished");
 
     return NULL;
 }
+
+
+void stats_callback (client_t *client, void *notused)
+{
+    if (client->con->error)
+    {
+        client_destroy (client);
+        return;
+    }
+    client_set_queue (client, NULL);
+    thread_create("Stats Connection", stats_connection, (void *)client, THREAD_DETACHED);
+}
+
 
 typedef struct _source_xml_tag {
     char *mount;
@@ -841,15 +900,17 @@ static xmlNodePtr _find_xml_node(char *mount, source_xml_t **list, xmlNodePtr ro
     return node->node;
 }
 
-void stats_transform_xslt(client_t *client, char *xslpath)
+void stats_transform_xslt(client_t *client, const char *uri)
 {
     xmlDocPtr doc;
+    char *xslpath = util_get_path_from_normalised_uri (uri);
 
     stats_get_xml(&doc, 0);
 
     xslt_transform(doc, xslpath, client);
 
     xmlFreeDoc(doc);
+    free (xslpath);
 }
 
 void stats_get_xml(xmlDocPtr *doc, int show_hidden)

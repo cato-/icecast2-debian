@@ -20,13 +20,12 @@
 
 #include <stdio.h>
 
-struct auth_tag;
-
 typedef struct source_tag
 {
     client_t *client;
     connection_t *con;
     http_parser_t *parser;
+    time_t client_stats_update;
     
     char *mount;
 
@@ -45,16 +44,17 @@ typedef struct source_tag
     rwlock_t *shutdown_rwlock;
     util_dict *audio_info;
 
+    FILE *intro_file;
+
     char *dumpfilename; /* Name of a file to dump incoming stream to */
     FILE *dumpfile;
 
-    long listeners;
+    unsigned long peak_listeners;
+    unsigned long listeners;
     long max_listeners;
     int yp_public;
-    int yp_prevent;
-    struct auth_tag *authenticator;
     int fallback_override;
-    int no_mount;
+    int fallback_when_full;
     int shoutcast_compat;
 
     /* per source burst handling for connecting clients */
@@ -66,6 +66,8 @@ typedef struct source_tag
     unsigned int queue_size_limit;
 
     unsigned timeout;  /* source timeout in seconds */
+    int on_demand;
+    int on_demand_req;
     int hidden;
     time_t last_read;
     int short_delay;
@@ -77,7 +79,8 @@ typedef struct source_tag
 
 source_t *source_reserve (const char *mount);
 void *source_client_thread (void *arg);
-void source_apply_mount (source_t *source, mount_proxy *mountinfo);
+void source_client_callback (client_t *client, void *source);
+void source_update_settings (ice_config_t *config, source_t *source, mount_proxy *mountinfo);
 void source_clear_source (source_t *source);
 source_t *source_find_mount(const char *mount);
 source_t *source_find_mount_raw(const char *mount);
@@ -87,6 +90,7 @@ void source_free_source(source_t *source);
 void source_move_clients (source_t *source, source_t *dest);
 int source_remove_client(void *key);
 void source_main(source_t *source);
+void source_recheck_mounts (void);
 
 extern mutex_t move_clients_mutex;
 

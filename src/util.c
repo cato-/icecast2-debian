@@ -131,7 +131,7 @@ int util_read_header(int sock, char *buff, unsigned long len, int entire)
     return ret;
 }
 
-char *util_get_extension(char *path) {
+char *util_get_extension(const char *path) {
     char *ext = strrchr(path, '.');
 
     if(ext == NULL)
@@ -225,7 +225,7 @@ char *util_get_path_from_uri(char *uri) {
     }
 }
 
-char *util_get_path_from_normalised_uri(char *uri) {
+char *util_get_path_from_normalised_uri(const char *uri) {
     char *fullpath;
     char *webroot;
     ice_config_t *config = config_get_config();
@@ -463,6 +463,10 @@ char *util_base64_decode(unsigned char *input)
         }
 
         *out++ = vals[0]<<2 | vals[1]>>4;
+        /* vals[3] and (if that is) vals[2] can be '=' as padding, which is
+           looked up in the base64decode table as '-1'. Check for this case,
+           and output zero-terminators instead of characters if we've got
+           padding. */
         if(vals[2] >= 0)
             *out++ = ((vals[1]&0x0F)<<4) | (vals[2]>>2);
         else

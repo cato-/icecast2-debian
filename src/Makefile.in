@@ -101,6 +101,9 @@ PTHREAD_CPPFLAGS = @PTHREAD_CPPFLAGS@
 PTHREAD_LIBS = @PTHREAD_LIBS@
 RANLIB = @RANLIB@
 RC = @RC@
+SPEEX_CFLAGS = @SPEEX_CFLAGS@
+SPEEX_LDFLAGS = @SPEEX_LDFLAGS@
+SPEEX_LIBS = @SPEEX_LIBS@
 STRIP = @STRIP@
 THEORA_CFLAGS = @THEORA_CFLAGS@
 THEORA_LDFLAGS = @THEORA_LDFLAGS@
@@ -117,6 +120,7 @@ XIPH_LDFLAGS = @XIPH_LDFLAGS@
 XIPH_LIBS = @XIPH_LIBS@
 XMLCONFIG = @XMLCONFIG@
 XSLTCONFIG = @XSLTCONFIG@
+acx_pthread_config = @acx_pthread_config@
 am__include = @am__include@
 am__quote = @am__quote@
 install_sh = @install_sh@
@@ -128,17 +132,21 @@ SUBDIRS = avl thread httpp net log timing
 bin_PROGRAMS = icecast
 
 noinst_HEADERS = admin.h cfgfile.h os.h logging.h sighandler.h connection.h \
-    global.h util.h slave.h source.h stats.h refbuf.h client.h format.h \
-    compat.h format_mp3.h fserve.h xslt.h yp.h event.h md5.h \
-    auth.h format_ogg.h \
-    format_vorbis.h format_theora.h
+    global.h util.h slave.h source.h stats.h refbuf.h client.h \
+    compat.h fserve.h xslt.h yp.h event.h md5.h \
+    auth.h auth_htpasswd.h auth_url.h \
+    format.h format_ogg.h format_mp3.h \
+    format_vorbis.h format_theora.h format_flac.h format_speex.h format_midi.h
 
 icecast_SOURCES = cfgfile.c main.c logging.c sighandler.c connection.c global.c \
-    util.c slave.c source.c stats.c refbuf.c client.c format.c format_ogg.c \
-    format_mp3.c xslt.c fserve.c event.c admin.c auth.c md5.c
+    util.c slave.c source.c stats.c refbuf.c client.c \
+    xslt.c fserve.c event.c admin.c md5.c \
+    format.c format_ogg.c format_mp3.c format_midi.c format_flac.c \
+    auth.c auth_htpasswd.c
 
 EXTRA_icecast_SOURCES = yp.c \
-    format_vorbis.c format_theora.c
+    auth_url.c \
+    format_vorbis.c format_theora.c format_speex.c
 
 
 icecast_DEPENDENCIES = @ICECAST_OPTIONAL@ net/libicenet.la thread/libicethread.la \
@@ -159,10 +167,11 @@ PROGRAMS = $(bin_PROGRAMS)
 am_icecast_OBJECTS = cfgfile.$(OBJEXT) main.$(OBJEXT) logging.$(OBJEXT) \
 	sighandler.$(OBJEXT) connection.$(OBJEXT) global.$(OBJEXT) \
 	util.$(OBJEXT) slave.$(OBJEXT) source.$(OBJEXT) stats.$(OBJEXT) \
-	refbuf.$(OBJEXT) client.$(OBJEXT) format.$(OBJEXT) \
-	format_ogg.$(OBJEXT) format_mp3.$(OBJEXT) xslt.$(OBJEXT) \
-	fserve.$(OBJEXT) event.$(OBJEXT) admin.$(OBJEXT) auth.$(OBJEXT) \
-	md5.$(OBJEXT)
+	refbuf.$(OBJEXT) client.$(OBJEXT) xslt.$(OBJEXT) \
+	fserve.$(OBJEXT) event.$(OBJEXT) admin.$(OBJEXT) md5.$(OBJEXT) \
+	format.$(OBJEXT) format_ogg.$(OBJEXT) format_mp3.$(OBJEXT) \
+	format_midi.$(OBJEXT) format_flac.$(OBJEXT) auth.$(OBJEXT) \
+	auth_htpasswd.$(OBJEXT)
 icecast_OBJECTS = $(am_icecast_OBJECTS)
 icecast_LDFLAGS =
 
@@ -173,10 +182,14 @@ LDFLAGS = @LDFLAGS@
 depcomp = $(SHELL) $(top_srcdir)/depcomp
 am__depfiles_maybe = depfiles
 @AMDEP_TRUE@DEP_FILES = ./$(DEPDIR)/admin.Po ./$(DEPDIR)/auth.Po \
-@AMDEP_TRUE@	./$(DEPDIR)/cfgfile.Po ./$(DEPDIR)/client.Po \
-@AMDEP_TRUE@	./$(DEPDIR)/connection.Po ./$(DEPDIR)/event.Po \
-@AMDEP_TRUE@	./$(DEPDIR)/format.Po ./$(DEPDIR)/format_mp3.Po \
-@AMDEP_TRUE@	./$(DEPDIR)/format_ogg.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/auth_htpasswd.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/auth_url.Po ./$(DEPDIR)/cfgfile.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/client.Po ./$(DEPDIR)/connection.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/event.Po ./$(DEPDIR)/format.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/format_flac.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/format_midi.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/format_mp3.Po ./$(DEPDIR)/format_ogg.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/format_speex.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/format_theora.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/format_vorbis.Po ./$(DEPDIR)/fserve.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/global.Po ./$(DEPDIR)/logging.Po \
@@ -254,13 +267,18 @@ distclean-compile:
 
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/admin.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/auth.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/auth_htpasswd.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/auth_url.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/cfgfile.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/client.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/connection.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/event.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/format.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/format_flac.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/format_midi.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/format_mp3.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/format_ogg.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/format_speex.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/format_theora.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/format_vorbis.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/fserve.Po@am__quote@

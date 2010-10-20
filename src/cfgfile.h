@@ -20,9 +20,11 @@
 
 #define MAX_YP_DIRECTORIES 25
 
+struct _mount_proxy;
 
 #include "thread/thread.h"
 #include "avl/avl.h"
+#include "auth.h"
 #include "global.h"
 
 typedef struct ice_config_dir_tag
@@ -46,6 +48,9 @@ typedef struct _mount_proxy {
 
     char *dumpfile; /* Filename to dump this stream to (will be appended). NULL
                        to not dump. */
+    char *intro_filename;   /* Send contents of file to client before the stream */
+    int fallback_when_full; /* switch new listener to fallback source
+                               when max listeners reached */
     int max_listeners; /* Max listeners for this mountpoint only. -1 to not 
                           limit here (i.e. only use the global limit) */
     char *fallback_mount; /* Fallback mountname */
@@ -57,13 +62,27 @@ typedef struct _mount_proxy {
     int burst_size; /* amount to send to a new client if possible, -1 take
                      * from global setting */
     unsigned int queue_size_limit;
-    int no_yp; /* Do we prevent YP on this mount */
     int hidden; /* Do we list this on the xsl pages */
     unsigned int source_timeout;  /* source timeout in seconds */
+    int mp3_meta_interval; /* outgoing per-stream metadata interval */
 
     char *auth_type; /* Authentication type */
+    struct auth_tag *auth;
     char *cluster_password;
     config_options_t *auth_options; /* Options for this type */
+    char *on_connect;
+    char *on_disconnect;
+    unsigned int max_listener_duration;
+
+    char *stream_name;
+    char *stream_description;
+    char *stream_url;
+    char *stream_genre;
+    char *bitrate;
+    char *type;
+    char *subtype;
+    int yp_public;
+
     struct _mount_proxy *next;
 } mount_proxy;
 
@@ -98,6 +117,7 @@ typedef struct ice_config_tag
     int source_timeout;
     int ice_login;
     int fileserve;
+    int on_demand; /* global setting for all relays */
 
     char *shoutcast_mount;
     char *source_password;
@@ -117,6 +137,7 @@ typedef struct ice_config_tag
     char *master_server;
     int master_server_port;
     int master_update_interval;
+    char *master_username;
     char *master_password;
 
     relay_server *relay;
@@ -146,9 +167,8 @@ typedef struct ice_config_tag
 } ice_config_t;
 
 typedef struct {
-    mutex_t config_lock;
+    rwlock_t config_lock;
     mutex_t relay_lock;
-    mutex_t mounts_lock;
 } ice_config_locks;
 
 void config_initialize(void);
@@ -159,12 +179,14 @@ int config_initial_parse_file(const char *filename);
 int config_parse_cmdline(int arg, char **argv);
 void config_set_config(ice_config_t *config);
 void config_clear(ice_config_t *config);
+mount_proxy *config_find_mount (ice_config_t *config, const char *mount);
 
 int config_rehash(void);
 
 ice_config_locks *config_locks(void);
 
 ice_config_t *config_get_config(void);
+ice_config_t *config_grab_config(void);
 void config_release_config(void);
 
 /* To be used ONLY in one-time startup code */

@@ -17,6 +17,7 @@
 #include "event.h"
 #include "cfgfile.h"
 #include "yp.h"
+#include "source.h"
 
 #include "refbuf.h"
 #include "client.h"
@@ -32,8 +33,9 @@ void event_config_read(void *arg)
     ice_config_t new_config;
     /* reread config file */
 
-    config = config_get_config(); /* Both to get the lock, and to be able
+    config = config_grab_config(); /* Both to get the lock, and to be able
                                      to find out the config filename */
+    xmlSetGenericErrorFunc ("config", log_parse_failure);
     ret = config_parse_file(config->config_filename, &new_config);
     if(ret < 0) {
         ERROR0("Error parsing config, not replacing existing config");
@@ -58,10 +60,10 @@ void event_config_read(void *arg)
         config_clear(config);
         config_set_config(&new_config);
         restart_logging (config_get_config_unlocked());
-        slave_recheck();
         yp_recheck_config (config_get_config_unlocked());
 
         config_release_config();
+        slave_recheck_mounts();
     }
 }
 

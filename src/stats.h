@@ -21,12 +21,6 @@
 #include <libxml/tree.h>
 
 
-typedef struct _stats_connection_tag
-{
-    connection_t *con;
-    http_parser_t *parser;
-} stats_connection_t;
-
 typedef struct _stats_node_tag
 {
     char *name;
@@ -87,11 +81,12 @@ void stats_event_inc(const char *source, const char *name);
 void stats_event_add(const char *source, const char *name, unsigned long value);
 void stats_event_dec(const char *source, const char *name);
 void stats_event_hidden (const char *source, const char *name, int hidden);
+void stats_event_time (const char *mount, const char *name);
 
 void *stats_connection(void *arg);
-void *stats_callback(void *arg);
+void stats_callback (client_t *client, void *notused);
 
-void stats_transform_xslt(client_t *client, char *xslpath);
+void stats_transform_xslt(client_t *client, const char *uri);
 void stats_sendxml(client_t *client);
 void stats_get_xml(xmlDocPtr *doc, int show_hidden);
 char *stats_get_value(char *source, char *name);

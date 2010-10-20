@@ -14,24 +14,26 @@
 #define __FSERVE_H__
 
 #include <stdio.h>
-#include "compat.h"
+
+typedef void (*fserve_callback_t)(client_t *, void *);
 
 typedef struct _fserve_t
 {
     client_t *client;
 
     FILE *file;
-    int offset;
-    int64_t content_length;
-    int datasize;
     int ready;
-    unsigned char *buf;
+    void (*callback)(client_t *, void *);
+    void *arg;
     struct _fserve_t *next;
 } fserve_t;
 
 void fserve_initialize(void);
 void fserve_shutdown(void);
-int fserve_client_create(client_t *httpclient, char *path);
+int fserve_client_create(client_t *httpclient, const char *path);
+int fserve_add_client (client_t *client, FILE *file);
+void fserve_add_client_callback (client_t *client, fserve_callback_t callback, void *arg);
+char *fserve_content_type (const char *path);
 
 
 #endif

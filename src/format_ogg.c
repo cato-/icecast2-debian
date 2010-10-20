@@ -37,6 +37,11 @@
 #ifdef HAVE_THEORA
 #include "format_theora.h"
 #endif
+#ifdef HAVE_SPEEX
+#include "format_speex.h"
+#endif
+#include "format_midi.h"
+#include "format_flac.h"
 
 #ifdef _WIN32
 #define snprintf _snprintf
@@ -49,13 +54,11 @@ struct _ogg_state_tag;
 
 static void format_ogg_free_plugin (format_plugin_t *plugin);
 static int  create_ogg_client_data(source_t *source, client_t *client);
-static void format_ogg_send_headers(format_plugin_t *self,
-        source_t *source, client_t *client);
 static void free_ogg_client_data (client_t *client);
 
 static void write_ogg_to_file (struct source_tag *source, refbuf_t *refbuf);
 static refbuf_t *ogg_get_buffer (source_t *source);
-static int write_buf_to_client (format_plugin_t *self, client_t *client);
+static int write_buf_to_client (client_t *client);
 
 
 struct ogg_client
@@ -139,12 +142,15 @@ static void free_ogg_codecs (ogg_state_t *ogg_info)
     while (codec)
     {
         ogg_codec_t *next = codec->next;
+        if (codec->possible_start)
+            refbuf_release (codec->possible_start);
         codec->codec_free (ogg_info, codec);
         codec = next;
     }
     ogg_info->codecs = NULL;
     ogg_info->current = NULL;
     ogg_info->bos_completed = 0;
+    ogg_info->codec_count = 0;
 }
 
 
@@ -160,7 +166,6 @@ int format_ogg_get_plugin (source_t *source)
     plugin->write_buf_to_client = write_buf_to_client;
     plugin->write_buf_to_file = write_ogg_to_file;
     plugin->create_client_data = create_ogg_client_data;
-    plugin->client_send_headers = format_ogg_send_headers;
     plugin->free_plugin = format_ogg_free_plugin;
     plugin->set_tag = NULL;
     plugin->contenttype = "application/ogg";
@@ -207,6 +212,12 @@ static int process_initial_page (format_plugin_t *plugin, ogg_page *page)
     }
     do
     {
+        if (ogg_info->codec_count > 10)
+        {
+            ERROR0 ("many codecs in stream, playing safe, dropping source");
+            ogg_info->error = 1;
+            return -1;
+        }
         codec = initial_vorbis_page (plugin, page);
         if (codec)
             break;
@@ -215,6 +226,18 @@ static int process_initial_page (format_plugin_t *plugin, ogg_page *page)
         if (codec)
             break;
 #endif
+        codec = initial_midi_page (plugin, page);
+        if (codec)
+            break;
+        codec = initial_flac_page (plugin, page);
+        if (codec)
+            break;
+#ifdef HAVE_SPEEX
+        codec = initial_speex_page (plugin, page);
+        if (codec)
+            break;
+#endif
+
         /* any others */
         ERROR0 ("Seen BOS page with unknown type");
         return -1;
@@ -225,6 +248,7 @@ static int process_initial_page (format_plugin_t *plugin, ogg_page *page)
         /* add codec to list */
         codec->next = ogg_info->codecs;
         ogg_info->codecs = codec;
+        ogg_info->codec_count++;
     }
 
     return 0;
@@ -241,7 +265,7 @@ static void update_comments (source_t *source)
     char *title = ogg_info->title;
     char *artist = ogg_info->artist;
     char *metadata = NULL;
-    unsigned int len = 0;
+    unsigned int len = 1; /* space for the nul byte at least */
     ogg_codec_t *codec;
     char codec_names [100] = "";
 
@@ -356,15 +380,16 @@ static refbuf_t *process_ogg_page (ogg_state_t *ogg_info, ogg_page *page)
 static refbuf_t *ogg_get_buffer (source_t *source)
 {
     ogg_state_t *ogg_info = source->format->_state;
+    format_plugin_t *format = source->format;
     char *data = NULL;
-    int bytes;
+    int bytes = 0;
 
     while (1)
     {
         while (1)
         {
             ogg_page page;
-            refbuf_t *refbuf;
+            refbuf_t *refbuf = NULL;
             ogg_codec_t *codec = ogg_info->current;
 
             /* if a codec has just been given a page then process it */
@@ -382,10 +407,12 @@ static refbuf_t *ogg_get_buffer (source_t *source)
                 if (ogg_page_bos (&page))
                 {
                     process_initial_page (source->format, &page);
-                    continue;
                 }
-                ogg_info->bos_completed = 1;
-                refbuf = process_ogg_page (ogg_info, &page);
+                else
+                {
+                    ogg_info->bos_completed = 1;
+                    refbuf = process_ogg_page (ogg_info, &page);
+                }
                 if (ogg_info->error)
                 {
                     ERROR0 ("Problem processing stream");
@@ -402,23 +429,13 @@ static refbuf_t *ogg_get_buffer (source_t *source)
         /* we need more data to continue getting pages */
         data = ogg_sync_buffer (&ogg_info->oy, 4096);
 
-        bytes = sock_read_bytes (source->con->sock, data, 4096);
-        if (bytes < 0)
+        bytes = client_read_bytes (source->client, data, 4096);
+        if (bytes <= 0)
         {
-            if (sock_recoverable (sock_error()))
-                return NULL;
-            WARN0 ("source connection has died");
             ogg_sync_wrote (&ogg_info->oy, 0);
-            source->running = 0;
             return NULL;
         }
-        if (bytes == 0)
-        {
-            INFO1 ("End of Stream %s", source->mount);
-            ogg_sync_wrote (&ogg_info->oy, 0);
-            source->running = 0;
-            return NULL;
-        }
+        format->read_bytes += bytes;
         ogg_sync_wrote (&ogg_info->oy, bytes);
     }
 }
@@ -491,24 +508,14 @@ static int send_ogg_headers (client_t *client, refbuf_t *headers)
 /* main client write routine for sending ogg data. Each refbuf has a
  * single page so we only need to determine if there are new headers
  */
-static int write_buf_to_client (format_plugin_t *self, client_t *client)
+static int write_buf_to_client (client_t *client)
 {
     refbuf_t *refbuf = client->refbuf;
-    char *buf;
-    unsigned len;
+    char *buf = refbuf->data + client->pos;
+    unsigned len = refbuf->len - client->pos;
     struct ogg_client *client_data = client->format_data;
     int ret, written = 0;
 
-    if (refbuf->next == NULL && client->pos == refbuf->len)
-        return 0;
-
-    if (refbuf->next && client->pos == refbuf->len)
-    {
-        client_set_queue (client, refbuf->next);
-        refbuf = client->refbuf;
-    }
-    buf = refbuf->data + client->pos;
-    len = refbuf->len - client->pos;
     do
     {
         if (client_data->headers != refbuf->associated)
@@ -569,20 +576,4 @@ static void write_ogg_to_file (struct source_tag *source, refbuf_t *refbuf)
     write_ogg_data (source, refbuf);
 }
 
-
-static void format_ogg_send_headers(format_plugin_t *self,
-        source_t *source, client_t *client)
-{
-    int bytes;
-
-    client->respcode = 200;
-    bytes = sock_write(client->con->sock, 
-            "HTTP/1.0 200 OK\r\n" 
-            "Content-Type: %s\r\n", 
-            source->format->contenttype);
-
-    if(bytes > 0) client->con->sent_bytes += bytes;
-
-    format_send_general_headers(self, source, client);
-}
 

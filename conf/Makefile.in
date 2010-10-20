@@ -101,6 +101,9 @@ PTHREAD_CPPFLAGS = @PTHREAD_CPPFLAGS@
 PTHREAD_LIBS = @PTHREAD_LIBS@
 RANLIB = @RANLIB@
 RC = @RC@
+SPEEX_CFLAGS = @SPEEX_CFLAGS@
+SPEEX_LDFLAGS = @SPEEX_LDFLAGS@
+SPEEX_LIBS = @SPEEX_LIBS@
 STRIP = @STRIP@
 THEORA_CFLAGS = @THEORA_CFLAGS@
 THEORA_LDFLAGS = @THEORA_LDFLAGS@
@@ -117,17 +120,18 @@ XIPH_LDFLAGS = @XIPH_LDFLAGS@
 XIPH_LIBS = @XIPH_LIBS@
 XMLCONFIG = @XMLCONFIG@
 XSLTCONFIG = @XSLTCONFIG@
+acx_pthread_config = @acx_pthread_config@
 am__include = @am__include@
 am__quote = @am__quote@
 install_sh = @install_sh@
 
 AUTOMAKE_OPTIONS = foreign
 
-EXTRA_DIST = icecast.xml.in icecast_minimal.xml.in icecast_shoutcast_compat.xml.in
-DISTCLEANFILES = icecast.xml.dist icecast_minimal.xml.dist icecast_shoutcast_compat.xml.dist
+EXTRA_DIST = icecast.xml.in icecast_minimal.xml.in icecast_shoutcast_compat.xml.in icecast_urlauth.xml.in
+DISTCLEANFILES = icecast.xml.dist icecast_minimal.xml.dist icecast_shoutcast_compat.xml.dist icecast_urlauth.xml.dist
 
 docdir = $(datadir)/$(PACKAGE)/doc
-doc_DATA = icecast.xml.dist icecast_minimal.xml.dist icecast_shoutcast_compat.xml.dist
+doc_DATA = icecast.xml.dist icecast_minimal.xml.dist icecast_shoutcast_compat.xml.dist icecast_urlauth.xml.dist
 
 edit = sed -e 's,@pkgdatadir\@,$(pkgdatadir),g' \
 	-e 's,@localstatedir\@,$(localstatedir),g' \
@@ -300,6 +304,9 @@ icecast_minimal.xml.dist: $(srcdir)/icecast_minimal.xml.in
 
 icecast_shoutcast_compat.xml.dist: $(srcdir)/icecast_shoutcast_compat.xml.in
 	$(edit) $(srcdir)/icecast_shoutcast_compat.xml.in > icecast_shoutcast_compat.xml.dist
+
+icecast_urlauth.xml.dist: $(srcdir)/icecast_urlauth.xml.in
+	$(edit) $(srcdir)/icecast_urlauth.xml.in > icecast_urlauth.xml.dist
 
 debug:
 	$(MAKE) all CFLAGS="@DEBUG@"

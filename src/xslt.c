@@ -30,10 +30,13 @@
 #include <sys/stat.h>
 #include <errno.h>
 
-#ifndef _WIN32
+#ifdef  HAVE_SYS_TIME_H
 #include <sys/time.h>
 #endif
 
+#ifdef WIN32
+#define snprintf _snprintf
+#endif
 
 #include "thread/thread.h"
 #include "avl/avl.h"
@@ -46,6 +49,7 @@
 #include "refbuf.h"
 #include "client.h"
 #include "stats.h"
+#include "fserve.h"
 
 #define CATMODULE "xslt"
 
@@ -58,16 +62,47 @@ typedef struct {
     xsltStylesheetPtr  stylesheet;
 } stylesheet_cache_t;
 
+#ifndef HAVE_XSLTSAVERESULTTOSTRING
+int xsltSaveResultToString(xmlChar **doc_txt_ptr, int * doc_txt_len, xmlDocPtr result, xsltStylesheetPtr style) {
+    xmlOutputBufferPtr buf;
+
+    *doc_txt_ptr = NULL;
+    *doc_txt_len = 0;
+    if (result->children == NULL)
+	return(0);
+
+	buf = xmlAllocOutputBuffer(NULL);
+
+    if (buf == NULL)
+		return(-1);
+    xsltSaveResultTo(buf, result, style);
+    if (buf->conv != NULL) {
+		*doc_txt_len = buf->conv->use;
+		*doc_txt_ptr = xmlStrndup(buf->conv->content, *doc_txt_len);
+    } else {
+		*doc_txt_len = buf->buffer->use;
+		*doc_txt_ptr = xmlStrndup(buf->buffer->content, *doc_txt_len);
+    }
+    (void)xmlOutputBufferClose(buf);
+    return 0;
+}
+#endif
+
 /* Keep it small... */
 #define CACHESIZE 3
 
-stylesheet_cache_t cache[CACHESIZE];
-mutex_t xsltlock;
+static stylesheet_cache_t cache[CACHESIZE];
+static mutex_t xsltlock;
 
 void xslt_initialize()
 {
+    xmlSubstituteEntitiesDefault(1);
+    xmlLoadExtDtdDefaultValue = 1;
+
     memset(cache, 0, sizeof(stylesheet_cache_t)*CACHESIZE);
     thread_mutex_create(&xsltlock);
+    xmlSubstituteEntitiesDefault(1);
+    xmlLoadExtDtdDefaultValue = 1;
 }
 
 void xslt_shutdown() {
@@ -80,6 +115,7 @@ void xslt_shutdown() {
             xsltFreeStylesheet(cache[i].stylesheet);
     }
 
+    thread_mutex_destroy (&xsltlock);
     xsltCleanupGlobals();
 }
 
@@ -105,7 +141,8 @@ static xsltStylesheetPtr xslt_get_stylesheet(const char *fn) {
     struct stat file;
 
     if(stat(fn, &file)) {
-        DEBUG1("Error checking for stylesheet file: %s", strerror(errno));
+        WARN2("Error checking for stylesheet file \"%s\": %s", fn, 
+                strerror(errno));
         return NULL;
     }
 
@@ -148,43 +185,50 @@ static xsltStylesheetPtr xslt_get_stylesheet(const char *fn) {
 
 void xslt_transform(xmlDocPtr doc, const char *xslfilename, client_t *client)
 {
-    xmlOutputBufferPtr outputBuffer;
     xmlDocPtr    res;
     xsltStylesheetPtr cur;
-    const char *params[16 + 1];
-    size_t count,bytes;
+    xmlChar *string;
+    int len, problem = 0;
 
-    params[0] = NULL;
-
-    xmlSubstituteEntitiesDefault(1);
-    xmlLoadExtDtdDefaultValue = 1;
+    xmlSetGenericErrorFunc ("", log_parse_failure);
+    xsltSetGenericErrorFunc ("", log_parse_failure);
 
     thread_mutex_lock(&xsltlock);
     cur = xslt_get_stylesheet(xslfilename);
-    thread_mutex_unlock(&xsltlock);
 
-    if (cur == NULL) {
-        bytes = sock_write_string(client->con->sock, 
-                (char *)"Could not parse XSLT file");
-        if(bytes > 0) client->con->sent_bytes += bytes;
-        
+    if (cur == NULL)
+    {
+        thread_mutex_unlock(&xsltlock);
+        ERROR1 ("problem reading stylesheet \"%s\"", xslfilename);
+        client_send_404 (client, "Could not parse XSLT file");
         return;
     }
 
-    res = xsltApplyStylesheet(cur, doc, params);
+    res = xsltApplyStylesheet(cur, doc, NULL);
 
-    outputBuffer = xmlAllocOutputBuffer(NULL);
+    if (xsltSaveResultToString (&string, &len, res, cur) < 0)
+        problem = 1;
+    thread_mutex_unlock(&xsltlock);
+    if (problem == 0)
+    {
+        const char *http = "HTTP/1.0 200 OK\r\nContent-Type: text/html\r\nContent-Length: ";
+        int buf_len = strlen (http) + 20 + len;
 
-    count = xsltSaveResultTo(outputBuffer, res, cur);
-
-    /*  Add null byte to end. */
-    bytes = xmlOutputBufferWrite(outputBuffer, 1, "");
-
-    if(sock_write_string(client->con->sock, 
-                (char *)outputBuffer->buffer->content))
-        client->con->sent_bytes += bytes;
-    
-    xmlOutputBufferClose(outputBuffer);
+        if (string == NULL)
+            string = xmlStrdup ("");
+        client->respcode = 200;
+        client_set_queue (client, NULL);
+        client->refbuf = refbuf_new (buf_len);
+        len = snprintf (client->refbuf->data, buf_len, "%s%d\r\n\r\n%s", http, len, string);
+        client->refbuf->len = len;
+        fserve_add_client (client, NULL);
+        xmlFree (string);
+    }
+    else
+    {
+        WARN1 ("problem applying stylesheet \"%s\"", xslfilename);
+        client_send_404 (client, "XSLT problem");
+    }
     xmlFreeDoc(res);
 }
 

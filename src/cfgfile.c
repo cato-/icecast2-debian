@@ -31,13 +31,15 @@
 #define CONFIG_DEFAULT_ADMIN "icemaster@localhost"
 #define CONFIG_DEFAULT_CLIENT_LIMIT 256
 #define CONFIG_DEFAULT_SOURCE_LIMIT 16
-#define CONFIG_DEFAULT_QUEUE_SIZE_LIMIT (100*1024)
+#define CONFIG_DEFAULT_QUEUE_SIZE_LIMIT (500*1024)
+#define CONFIG_DEFAULT_BURST_SIZE (64*1024)
 #define CONFIG_DEFAULT_THREADPOOL_SIZE 4
 #define CONFIG_DEFAULT_CLIENT_TIMEOUT 30
 #define CONFIG_DEFAULT_HEADER_TIMEOUT 15
 #define CONFIG_DEFAULT_SOURCE_TIMEOUT 10
 #define CONFIG_DEFAULT_SOURCE_PASSWORD "changeme"
 #define CONFIG_DEFAULT_RELAY_PASSWORD "changeme"
+#define CONFIG_DEFAULT_MASTER_USERNAME "relay"
 #define CONFIG_DEFAULT_SHOUTCAST_MOUNT "/stream"
 #define CONFIG_DEFAULT_ICE_LOGIN 0
 #define CONFIG_DEFAULT_FILESERVE 1
@@ -86,14 +88,12 @@ static void _add_server(xmlDocPtr doc, xmlNodePtr node, ice_config_t *c);
 
 static void create_locks() {
     thread_mutex_create(&_locks.relay_lock);
-    thread_mutex_create(&_locks.mounts_lock);
-    thread_mutex_create(&_locks.config_lock);
+    thread_rwlock_create(&_locks.config_lock);
 }
 
 static void release_locks() {
     thread_mutex_destroy(&_locks.relay_lock);
-    thread_mutex_destroy(&_locks.mounts_lock);
-    thread_mutex_destroy(&_locks.config_lock);
+    thread_rwlock_destroy(&_locks.config_lock);
 }
 
 void config_initialize(void) {
@@ -163,6 +163,7 @@ void config_clear(ice_config_t *c)
         if (c->listeners[i].bind_address) xmlFree(c->listeners[i].bind_address);
     }
     if (c->master_server) xmlFree(c->master_server);
+    if (c->master_username) xmlFree(c->master_username);
     if (c->master_password) xmlFree(c->master_password);
     if (c->user) xmlFree(c->user);
     if (c->group) xmlFree(c->group);
@@ -179,7 +180,6 @@ void config_clear(ice_config_t *c)
     }
     thread_mutex_unlock(&(_locks.relay_lock));
 
-    thread_mutex_lock(&(_locks.mounts_lock));
     mount = c->mounts;
     while(mount) {
         nextmount = mount->next;
@@ -187,7 +187,16 @@ void config_clear(ice_config_t *c)
         xmlFree(mount->username);
         xmlFree(mount->password);
         xmlFree(mount->dumpfile);
+        xmlFree(mount->intro_filename);
+        xmlFree(mount->on_connect);
+        xmlFree(mount->on_disconnect);
         xmlFree(mount->fallback_mount);
+        xmlFree(mount->stream_name);
+        xmlFree(mount->stream_description);
+        xmlFree(mount->stream_url);
+        xmlFree(mount->stream_genre);
+        xmlFree(mount->bitrate);
+        xmlFree(mount->type);
         if (mount->cluster_password) {
             xmlFree(mount->cluster_password);
         }
@@ -202,10 +211,10 @@ void config_clear(ice_config_t *c)
             option = nextopt;
         }
 
+        auth_release (mount->auth);
         free(mount);
         mount = nextmount;
     }
-    thread_mutex_unlock(&(_locks.mounts_lock));
 
     alias = c->aliases;
     while(alias) {
@@ -226,7 +235,7 @@ void config_clear(ice_config_t *c)
     }
 #ifdef USE_YP
     i = 0;
-    while (i < c->num_yp_directories) 
+    while (i < c->num_yp_directories)
     {
         xmlFree (c->yp_url[i]);
         i++;
@@ -291,12 +300,18 @@ ice_config_locks *config_locks(void)
 
 void config_release_config(void)
 {
-    thread_mutex_unlock(&(_locks.config_lock));
+    thread_rwlock_unlock(&(_locks.config_lock));
 }
 
 ice_config_t *config_get_config(void)
 {
-    thread_mutex_lock(&(_locks.config_lock));
+    thread_rwlock_rlock(&(_locks.config_lock));
+    return &_current_configuration;
+}
+
+ice_config_t *config_grab_config(void)
+{
+    thread_rwlock_wlock(&(_locks.config_lock));
     return &_current_configuration;
 }
 
@@ -326,6 +341,7 @@ static void _set_defaults(ice_config_t *configuration)
     configuration->ice_login = CONFIG_DEFAULT_ICE_LOGIN;
     configuration->fileserve = CONFIG_DEFAULT_FILESERVE;
     configuration->touch_interval = CONFIG_DEFAULT_TOUCH_FREQ;
+    configuration->on_demand = 0;
     configuration->dir_list = NULL;
     configuration->hostname = CONFIG_DEFAULT_HOSTNAME;
     configuration->port = 0;
@@ -335,6 +351,7 @@ static void _set_defaults(ice_config_t *configuration)
     configuration->master_server = NULL;
     configuration->master_server_port = 0;
     configuration->master_update_interval = CONFIG_MASTER_UPDATE_INTERVAL;
+    configuration->master_username = xmlStrdup (CONFIG_DEFAULT_MASTER_USERNAME);
     configuration->master_password = NULL;
     configuration->base_dir = CONFIG_DEFAULT_BASE_DIR;
     configuration->log_dir = CONFIG_DEFAULT_LOG_DIR;
@@ -349,10 +366,10 @@ static void _set_defaults(ice_config_t *configuration)
     configuration->user = CONFIG_DEFAULT_USER;
     configuration->group = CONFIG_DEFAULT_GROUP;
     configuration->num_yp_directories = 0;
-    configuration->relay_username = NULL;
+    configuration->relay_username = xmlStrdup (CONFIG_DEFAULT_MASTER_USERNAME);
     configuration->relay_password = NULL;
     /* default to a typical prebuffer size used by clients */
-    configuration->burst_size = 65536;
+    configuration->burst_size = CONFIG_DEFAULT_BURST_SIZE;
 }
 
 static void _parse_root(xmlDocPtr doc, xmlNodePtr node, 
@@ -391,6 +408,10 @@ static void _parse_root(xmlDocPtr doc, xmlNodePtr node,
             tmp = (char *)xmlNodeListGetString(doc, node->xmlChildrenNode, 1);
             configuration->fileserve = atoi(tmp);
             if (tmp) xmlFree(tmp);
+        } else if (strcmp(node->name, "relays-on-demand") == 0) {
+            tmp = (char *)xmlNodeListGetString(doc, node->xmlChildrenNode, 1);
+            configuration->on_demand = atoi(tmp);
+            if (tmp) xmlFree(tmp);
         } else if (strcmp(node->name, "hostname") == 0) {
             if (configuration->hostname && configuration->hostname != CONFIG_DEFAULT_HOSTNAME) xmlFree(configuration->hostname);
             configuration->hostname = (char *)xmlNodeListGetString(doc, node->xmlChildrenNode, 1);
@@ -408,6 +429,9 @@ static void _parse_root(xmlDocPtr doc, xmlNodePtr node,
         } else if (strcmp(node->name, "master-server") == 0) {
             if (configuration->master_server) xmlFree(configuration->master_server);
             configuration->master_server = (char *)xmlNodeListGetString(doc, node->xmlChildrenNode, 1);
+        } else if (strcmp(node->name, "master-username") == 0) {
+            if (configuration->master_username) xmlFree(configuration->master_username);
+            configuration->master_username = (char *)xmlNodeListGetString(doc, node->xmlChildrenNode, 1);
         } else if (strcmp(node->name, "master-password") == 0) {
             if (configuration->master_password) xmlFree(configuration->master_password);
             configuration->master_password = (char *)xmlNodeListGetString(doc, node->xmlChildrenNode, 1);
@@ -499,8 +523,6 @@ static void _parse_mount(xmlDocPtr doc, xmlNodePtr node,
     mount_proxy *mount = calloc(1, sizeof(mount_proxy));
     mount_proxy *current = configuration->mounts;
     mount_proxy *last=NULL;
-    xmlNodePtr option;
-    config_options_t *last_option;
     
     while(current) {
         last = current;
@@ -515,6 +537,8 @@ static void _parse_mount(xmlDocPtr doc, xmlNodePtr node,
     /* default <mount> settings */
     mount->max_listeners = -1;
     mount->burst_size = -1;
+    mount->mp3_meta_interval = -1;
+    mount->yp_public = -1;
     mount->next = NULL;
 
     do {
@@ -537,13 +561,27 @@ static void _parse_mount(xmlDocPtr doc, xmlNodePtr node,
             mount->dumpfile = (char *)xmlNodeListGetString(
                     doc, node->xmlChildrenNode, 1);
         }
+        else if (strcmp(node->name, "intro") == 0) {
+            mount->intro_filename = (char *)xmlNodeListGetString(
+                    doc, node->xmlChildrenNode, 1);
+        }
         else if (strcmp(node->name, "fallback-mount") == 0) {
             mount->fallback_mount = (char *)xmlNodeListGetString(
                     doc, node->xmlChildrenNode, 1);
         }
+        else if (strcmp(node->name, "fallback-when-full") == 0) {
+            tmp = (char *)xmlNodeListGetString(doc, node->xmlChildrenNode, 1);
+            mount->fallback_when_full = atoi(tmp);
+            if(tmp) xmlFree(tmp);
+        }
         else if (strcmp(node->name, "max-listeners") == 0) {
             tmp = (char *)xmlNodeListGetString(doc, node->xmlChildrenNode, 1);
             mount->max_listeners = atoi(tmp);
+            if(tmp) xmlFree(tmp);
+        }
+        else if (strcmp(node->name, "mp3-metadata-interval") == 0) {
+            tmp = (char *)xmlNodeListGetString(doc, node->xmlChildrenNode, 1);
+            mount->mp3_meta_interval = atoi(tmp);
             if(tmp) xmlFree(tmp);
         }
         else if (strcmp(node->name, "fallback-override") == 0) {
@@ -558,7 +596,7 @@ static void _parse_mount(xmlDocPtr doc, xmlNodePtr node,
         }
         else if (strcmp(node->name, "no-yp") == 0) {
             tmp = (char *)xmlNodeListGetString(doc, node->xmlChildrenNode, 1);
-            mount->no_yp = atoi(tmp);
+            mount->yp_public = atoi(tmp) == 0 ? -1 : 0;
             if(tmp) xmlFree(tmp);
         }
         else if (strcmp(node->name, "hidden") == 0) {
@@ -567,35 +605,20 @@ static void _parse_mount(xmlDocPtr doc, xmlNodePtr node,
             if(tmp) xmlFree(tmp);
         }
         else if (strcmp(node->name, "authentication") == 0) {
-            mount->auth_type = xmlGetProp(node, "type");
-            option = node->xmlChildrenNode;
-            last_option = NULL;
-            while(option != NULL) {
-                if(strcmp(option->name, "option") == 0) {
-                    config_options_t *opt = malloc(sizeof(config_options_t));
-                    opt->name = xmlGetProp(option, "name");
-                    if(!opt->name) {
-                        free(opt);
-                        option = option->next;
-                        continue;
-                    }
-                    opt->value = xmlGetProp(option, "value");
-                    if(!opt->value) {
-                        free(opt->name);
-                        free(opt);
-                        option = option->next;
-                        continue;
-                    }
-                    opt->next = NULL;
-
-                    if(last_option)
-                        last_option->next = opt;
-                    else
-                        mount->auth_options = opt;
-                    last_option = opt;
-                }
-                option = option->next;
-            }
+            mount->auth = auth_get_authenticator (node);
+        }
+        else if (strcmp(node->name, "on-connect") == 0) {
+            mount->on_connect = (char *)xmlNodeListGetString(
+                    doc, node->xmlChildrenNode, 1);
+        }
+        else if (strcmp(node->name, "on-disconnect") == 0) {
+            mount->on_disconnect = (char *)xmlNodeListGetString(
+                    doc, node->xmlChildrenNode, 1);
+        }
+        else if (strcmp(node->name, "max-listener-duration") == 0) {
+            tmp = (char *)xmlNodeListGetString(doc, node->xmlChildrenNode, 1);
+            mount->max_listener_duration = atoi(tmp);
+            if(tmp) xmlFree(tmp);
         }
         else if (strcmp(node->name, "queue-size") == 0) {
             tmp = (char *)xmlNodeListGetString(doc, node->xmlChildrenNode, 1);
@@ -614,12 +637,37 @@ static void _parse_mount(xmlDocPtr doc, xmlNodePtr node,
             mount->burst_size = atoi(tmp);
             if (tmp) xmlFree(tmp);
         } else if (strcmp(node->name, "cluster-password") == 0) {
-            tmp = (char *)xmlNodeListGetString(doc, node->xmlChildrenNode, 1);
             mount->cluster_password = (char *)xmlNodeListGetString(
+                    doc, node->xmlChildrenNode, 1);
+        } else if (strcmp(node->name, "stream-name") == 0) {
+            mount->stream_name = (char *)xmlNodeListGetString(
+                    doc, node->xmlChildrenNode, 1);
+        } else if (strcmp(node->name, "stream-description") == 0) {
+            mount->stream_description = (char *)xmlNodeListGetString(
+                    doc, node->xmlChildrenNode, 1);
+        } else if (strcmp(node->name, "stream-url") == 0) {
+            mount->stream_url = (char *)xmlNodeListGetString(
+                    doc, node->xmlChildrenNode, 1);
+        } else if (strcmp(node->name, "genre") == 0) {
+            mount->stream_genre = (char *)xmlNodeListGetString(
+                    doc, node->xmlChildrenNode, 1);
+        } else if (strcmp(node->name, "bitrate") == 0) {
+            mount->bitrate = (char *)xmlNodeListGetString(
+                    doc, node->xmlChildrenNode, 1);
+        } else if (strcmp(node->name, "public") == 0) {
+            tmp = (char *)xmlNodeListGetString(doc, node->xmlChildrenNode, 1);
+            mount->yp_public = atoi (tmp);
+            if(tmp) xmlFree(tmp);
+        } else if (strcmp(node->name, "type") == 0) {
+            mount->type = (char *)xmlNodeListGetString(
+                    doc, node->xmlChildrenNode, 1);
+        } else if (strcmp(node->name, "subtype") == 0) {
+            mount->subtype = (char *)xmlNodeListGetString(
                     doc, node->xmlChildrenNode, 1);
         }
     } while ((node = node->next));
 }
+
 
 static void _parse_relay(xmlDocPtr doc, xmlNodePtr node,
         ice_config_t *configuration)
@@ -641,6 +689,7 @@ static void _parse_relay(xmlDocPtr doc, xmlNodePtr node,
 
     relay->next = NULL;
     relay->mp3metadata = 1;
+    relay->on_demand = configuration->on_demand;
 
     do {
         if (node == NULL) break;
@@ -676,6 +725,11 @@ static void _parse_relay(xmlDocPtr doc, xmlNodePtr node,
             relay->password = (char *)xmlNodeListGetString(doc,
                     node->xmlChildrenNode, 1);
         }
+        else if (strcmp(node->name, "on-demand") == 0) {
+            tmp = (char *)xmlNodeListGetString(doc, node->xmlChildrenNode, 1);
+            relay->on_demand = atoi(tmp);
+            if (tmp) xmlFree(tmp);
+        }
     } while ((node = node->next));
     if (relay->localmount == NULL)
         relay->localmount = xmlStrdup (relay->mount);
@@ -695,6 +749,8 @@ static void _parse_listen_socket(xmlDocPtr doc, xmlNodePtr node,
         }
     }
 
+    if (listener == NULL)
+        return;
     do {
         if (node == NULL) break;
         if (xmlIsBlankNode(node)) continue;
@@ -967,4 +1023,18 @@ static void _add_server(xmlDocPtr doc, xmlNodePtr node,
     
 }
 
+
+/* return the mount details that match the supplied mountpoint */
+mount_proxy *config_find_mount (ice_config_t *config, const char *mount)
+{
+    mount_proxy *mountinfo = config->mounts;
+
+    while (mountinfo)
+    {
+        if (strcmp (mountinfo->mountname, mount) == 0)
+            break;
+        mountinfo = mountinfo->next;
+    }
+    return mountinfo;
+}
 

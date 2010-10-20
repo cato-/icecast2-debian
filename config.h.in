@@ -9,6 +9,9 @@
 /* Define to 1 if you have the <alloca.h> header file. */
 #undef HAVE_ALLOCA_H
 
+/* Define to compile in auth URL support code */
+#undef HAVE_AUTH_URL
+
 /* Define if you have libcurl. */
 #undef HAVE_CURL
 
@@ -66,6 +69,9 @@
 /* Define to 1 if the system has the type `socklen_t'. */
 #undef HAVE_SOCKLEN_T
 
+/* Define if Speex support is available */
+#undef HAVE_SPEEX
+
 /* Define to 1 if you have the <stdint.h> header file. */
 #undef HAVE_STDINT_H
 
@@ -111,6 +117,9 @@
 /* Define to 1 if you have the `writev' function. */
 #undef HAVE_WRITEV
 
+/* Define to 1 if you have the `xsltSaveResultToString' function. */
+#undef HAVE_XSLTSAVERESULTTOSTRING
+
 /* Name of package */
 #undef PACKAGE
 
@@ -129,7 +138,7 @@
 /* Define to the version of this package. */
 #undef PACKAGE_VERSION
 
-/* Define to the necessary symbol if this constant uses a non-standard name on
+/* Define to necessary symbol if this constant uses a non-standard name on
    your system. */
 #undef PTHREAD_CREATE_JOINABLE
 

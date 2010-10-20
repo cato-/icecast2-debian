@@ -36,7 +36,6 @@
 #else
 #include <windows.h>
 #include <winbase.h>
-#include <implement.h>
 #endif
 
 #include <signal.h>
@@ -292,6 +291,7 @@ thread_type *thread_create_c(char *name, void *(*start_routine)(void *),
         start->arg = arg;
         start->thread = thread;
 
+        pthread_attr_setstacksize (&attr, 512*1024);
         pthread_attr_setinheritsched (&attr, PTHREAD_INHERIT_SCHED);
         if (detached)
         {

@@ -49,6 +49,7 @@
 #include "xslt.h"
 #include "fserve.h"
 #include "yp.h"
+#include "auth.h"
 
 #include <libxml/xmlmemory.h>
 
@@ -62,6 +63,9 @@
 #undef CATMODULE
 #define CATMODULE "main"
 
+static int background;
+static char *pidfile = NULL;
+
 static void _fatal_error(char *perr)
 {
 #ifdef WIN32
@@ -74,10 +78,9 @@ static void _fatal_error(char *perr)
 static void _print_usage()
 {
     printf(ICECAST_VERSION_STRING "\n\n");
-    printf("usage: icecast [-h -b -v] -c <file>\n");
+    printf("usage: icecast [-b -v] -c <file>\n");
     printf("options:\n");
     printf("\t-c <file>\tSpecify configuration file\n");
-    printf("\t-h\t\tDisplay usage\n");
     printf("\t-v\t\tDisplay version info\n");
     printf("\t-b\t\tRun icecast in the background\n");
     printf("\n");
@@ -109,11 +112,9 @@ static void _shutdown_subsystems(void)
     xslt_shutdown();
     refbuf_shutdown();
     slave_shutdown();
+    auth_shutdown();
     yp_shutdown();
     stats_shutdown();
-
-    /* Now that these are done, we can stop the loggers. */
-    _stop_logging();
 
     global_shutdown();
     connection_shutdown();
@@ -121,6 +122,9 @@ static void _shutdown_subsystems(void)
     resolver_shutdown();
     sock_shutdown();
     thread_shutdown();
+
+    /* Now that these are done, we can stop the loggers. */
+    _stop_logging();
     log_shutdown();
 
     xmlCleanupParser();
@@ -131,7 +135,7 @@ static int _parse_config_opts(int argc, char **argv, char *filename, int size)
     int i = 1;
     int config_ok = 0;
 
-
+    background = 0;
     if (argc < 2) return -1;
 
     while (i < argc) {
@@ -150,6 +154,7 @@ static int _parse_config_opts(int argc, char **argv, char *filename, int size)
                 fprintf(stderr, "FATAL: Unable to fork child!");
                 exit(1);
             }
+            background = 1;
 #endif
         }
         if (strcmp(argv[i], "-v") == 0) {
@@ -237,7 +242,7 @@ static int _start_logging(void)
     } else {
         playlistlog = -1;
     }
-    
+
     log_set_level(errorlog, config->loglevel);
     log_set_level(accesslog, 4);
     log_set_level(playlistlog, 4);
@@ -299,12 +304,27 @@ static int _start_listening(void)
 /* bind the socket and start listening */
 static int _server_proc_init(void)
 {
+    ice_config_t *config;
+
     if (!_setup_sockets())
         return 0;
 
     if (!_start_listening()) {
         _fatal_error("Failed trying to listen on server socket");
         return 0;
+    }
+
+    config = config_get_config_unlocked();
+    /* recreate the pid file */
+    if (config->pidfile)
+    {
+        FILE *f;
+        pidfile = strdup (config->pidfile);
+        if (pidfile && (f = fopen (config->pidfile, "w")) != NULL)
+        {
+            fprintf (f, "%d\n", (int)getpid());
+            fclose (f);
+        }
     }
 
     return 1;
@@ -315,6 +335,12 @@ static void _server_proc(void)
 {
     int i;
 
+    if (background)
+    {
+        fclose (stdin);
+        fclose (stdout);
+        fclose (stderr);
+    }
     connection_accept_loop();
 
     for(i=0; i < MAX_LISTEN_SOCKETS; i++)
@@ -398,11 +424,13 @@ static void _ch_root_uid_setup(void)
 #endif
 }
 
+#ifdef WIN32_SERVICE
+int mainService(int argc, char **argv)
+#else
 int main(int argc, char **argv)
+#endif
 {
     int res, ret;
-    ice_config_t *config;
-    char *pidfile = NULL;
     char filename[512];
     char pbuf[1024];
 
@@ -481,19 +509,6 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    config = config_get_config_unlocked();
-    /* recreate the pid file */
-    if (config->pidfile)
-    {
-        FILE *f;
-        pidfile = strdup (config->pidfile);
-        if (pidfile && (f = fopen (config->pidfile, "w")) != NULL)
-        {
-            fprintf (f, "%d\n", (int)getpid());
-            fclose (f);
-        }
-    }
-
     INFO0 (ICECAST_VERSION_STRING " server started");
 
     /* REM 3D Graphics */
@@ -506,6 +521,7 @@ int main(int argc, char **argv)
 
     /* Do this after logging init */
     slave_initialize();
+    auth_initialise ();
 
     _server_proc();
 

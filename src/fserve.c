@@ -19,6 +19,7 @@
 #include <string.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <errno.h>
 
 #ifdef HAVE_POLL
 #include <sys/poll.h>
@@ -31,6 +32,8 @@
 #else
 #include <winsock2.h>
 #include <windows.h>
+#define snprintf _snprintf
+#define S_ISREG(mode)  ((mode) & _S_IFREG)
 #endif
 
 #include "thread/thread.h"
@@ -63,7 +66,7 @@
 #endif
 
 static fserve_t *active_list = NULL;
-volatile static fserve_t *pending_list = NULL;
+static volatile fserve_t *pending_list = NULL;
 
 static mutex_t pending_lock;
 static avl_tree *mimetypes = NULL;
@@ -85,26 +88,19 @@ typedef struct {
     char *type;
 } mime_type;
 
-static int _free_client(void *key);
+static void fserve_client_destroy(fserve_t *fclient);
 static int _delete_mapping(void *mapping);
 static void *fserv_thread_function(void *arg);
 static void create_mime_mappings(const char *fn);
 
 void fserve_initialize(void)
 {
-    ice_config_t *config = config_get_config();
-    int serve = config->fileserve;
-
-    config_release_config();
-
-    if(!serve)
-        return;
-
     create_mime_mappings(MIMETYPESFILE);
 
     thread_mutex_create (&pending_lock);
 
     run_fserv = 1;
+    stats_event (NULL, "file_connections", "0");
 
     fserv_thread = thread_create("File Serving Thread", 
             fserv_thread_function, NULL, THREAD_ATTACHED);
@@ -142,7 +138,9 @@ int fserve_client_waiting (void)
             i++;
         }
     }
-    if (poll(ufds, fserve_clients, 200) > 0)
+    if (!ufds)
+        thread_sleep(200000);
+    else if (poll(ufds, fserve_clients, 200) > 0)
     {
         /* mark any clients that are ready */
         fclient = active_list;
@@ -222,21 +220,20 @@ static void wait_for_fds() {
                 active_list = to_move;
                 client_tree_changed = 1;
                 fserve_clients++;
-                stats_event_inc(NULL, "clients");
             }
             pending_list = NULL;
             thread_mutex_unlock (&pending_lock);
         }
-        /* drop out of here is someone is ready */
+        /* drop out of here if someone is ready */
         if (fserve_client_waiting())
-           break;
+            break;
     }
 }
 
 static void *fserv_thread_function(void *arg)
 {
     fserve_t *fclient, **trail;
-    int sbytes, bytes;
+    int bytes;
 
     INFO0("file serving thread started");
     while (run_fserv) {
@@ -250,41 +247,40 @@ static void *fserv_thread_function(void *arg)
             /* process this client, if it is ready */
             if (fclient->ready)
             {
+                client_t *client = fclient->client;
+                refbuf_t *refbuf = client->refbuf;
                 fclient->ready = 0;
-                if(fclient->offset >= fclient->datasize) {
+                if (client->pos == refbuf->len)
+                {
                     /* Grab a new chunk */
-                    bytes = fread(fclient->buf, 1, BUFSIZE, fclient->file);
+                    if (fclient->file)
+                        bytes = fread (refbuf->data, 1, BUFSIZE, fclient->file);
+                    else
+                        bytes = 0;
                     if (bytes == 0)
                     {
                         fserve_t *to_go = fclient;
                         fclient = fclient->next;
                         *trail = fclient;
-                        _free_client (to_go);
+                        fserve_client_destroy (to_go);
                         fserve_clients--;
                         client_tree_changed = 1;
                         continue;
                     }
-                    fclient->offset = 0;
-                    fclient->datasize = bytes;
+                    refbuf->len = bytes;
+                    client->pos = 0;
                 }
 
                 /* Now try and send current chunk. */
-                sbytes = client_send_bytes (fclient->client, 
-                        &fclient->buf[fclient->offset], 
-                        fclient->datasize - fclient->offset);
+                format_generic_write_to_client (client);
 
-                /* TODO: remove clients if they take too long. */
-                if(sbytes > 0) {
-                    fclient->offset += sbytes;
-                }
-
-                if (fclient->client->con->error)
+                if (client->con->error)
                 {
                     fserve_t *to_go = fclient;
                     fclient = fclient->next;
                     *trail = fclient;
                     fserve_clients--;
-                    _free_client (to_go);
+                    fserve_client_destroy (to_go);
                     client_tree_changed = 1;
                     continue;
                 }
@@ -300,7 +296,8 @@ static void *fserv_thread_function(void *arg)
     {
         fserve_t *to_go = (fserve_t *)pending_list;
         pending_list = to_go->next;
-        _free_client (to_go);
+
+        fserve_client_destroy (to_go);
     }
     thread_mutex_unlock (&pending_lock);
 
@@ -308,13 +305,13 @@ static void *fserv_thread_function(void *arg)
     {
         fserve_t *to_go = active_list;
         active_list = to_go->next;
-        _free_client (to_go);
+        fserve_client_destroy (to_go);
     }
 
     return NULL;
 }
 
-static const char *fserve_content_type(char *path)
+char *fserve_content_type (const char *path)
 {
     char *ext = util_get_extension(path);
     mime_type exttype = {ext, NULL};
@@ -337,73 +334,147 @@ static const char *fserve_content_type(char *path)
             return "text/css";
         else if(!strcmp(ext, "txt"))
             return "text/plain";
+        else if(!strcmp(ext, "jpg"))
+            return "image/jpeg";
+        else if(!strcmp(ext, "png"))
+            return "image/png";
+        else if(!strcmp(ext, "m3u"))
+            return "audio/x-mpegurl";
         else
             return "application/octet-stream";
     }
 }
 
-static void fserve_client_destroy(fserve_t *client)
+static void fserve_client_destroy(fserve_t *fclient)
 {
-    if(client) {
-        if(client->buf)
-            free(client->buf);
-        if(client->file)
-            fclose(client->file);
+    if (fclient)
+    {
+        if (fclient->file)
+            fclose (fclient->file);
 
-        if(client->client)
-            client_destroy(client->client);
-        free(client);
+        if (fclient->callback)
+            fclient->callback (fclient->client, fclient->arg);
+        else
+            if (fclient->client)
+                client_destroy (fclient->client);
+        free (fclient);
     }
 }
 
-int fserve_client_create(client_t *httpclient, char *path)
+
+/* client has requested a file, so check for it and send the file.  Do not
+ * refer to the client_t afterwards.  return 0 for success, -1 on error.
+ */
+int fserve_client_create (client_t *httpclient, const char *path)
 {
-    fserve_t *client = calloc(1, sizeof(fserve_t));
     int bytes;
-    int client_limit;
-    ice_config_t *config = config_get_config();
     struct stat file_buf;
     char *range = NULL;
     int64_t new_content_len = 0;
-    int64_t rangenumber = 0;
+    int64_t rangenumber = 0, content_length;
     int rangeproblem = 0;
     int ret = 0;
+    char *fullpath;
+    int m3u_requested = 0, m3u_file_available = 1;
+    ice_config_t *config;
+    FILE *file;
 
-    client_limit = config->client_limit;
+    fullpath = util_get_path_from_normalised_uri (path);
+    INFO2 ("checking for file %s (%s)", path, fullpath);
+
+    if (strcmp (util_get_extension (fullpath), "m3u") == 0)
+        m3u_requested = 1;
+
+    /* check for the actual file */
+    if (stat (fullpath, &file_buf) != 0)
+    {
+        /* the m3u can be generated, but send an m3u file if available */
+        if (m3u_requested == 0)
+        {
+            WARN2 ("req for file \"%s\" %s", fullpath, strerror (errno));
+            client_send_404 (httpclient, "The file you requested could not be found");
+            free (fullpath);
+            return -1;
+        }
+        m3u_file_available = 0;
+    }
+
+    httpclient->refbuf->len = PER_CLIENT_REFBUF_SIZE;
+
+    if (m3u_requested && m3u_file_available == 0)
+    {
+        char *host = httpp_getvar (httpclient->parser, "host");
+        char *sourceuri = strdup (path);
+        char *dot = strrchr(sourceuri, '.');
+
+        /* at least a couple of players (fb2k/winamp) are reported to send a 
+         * host header but without the port number. So if we are missing the
+         * port then lets treat it as if no host line was sent */
+        if (host && strchr (host, ':') == NULL)
+            host = NULL;
+
+        *dot = 0;
+        httpclient->respcode = 200;
+        if (host == NULL)
+        {
+            config = config_get_config();
+            snprintf (httpclient->refbuf->data, BUFSIZE,
+                    "HTTP/1.0 200 OK\r\n"
+                    "Content-Type: audio/x-mpegurl\r\n\r\n"
+                    "http://%s:%d%s\r\n", 
+                    config->hostname, config->port,
+                    sourceuri
+                    );
+            config_release_config();
+        }
+        else
+        {
+            snprintf (httpclient->refbuf->data, BUFSIZE,
+                    "HTTP/1.0 200 OK\r\n"
+                    "Content-Type: audio/x-mpegurl\r\n\r\n"
+                    "http://%s%s\r\n", 
+                    host, 
+                    sourceuri
+                    );
+        }
+        httpclient->refbuf->len = strlen (httpclient->refbuf->data);
+        fserve_add_client (httpclient, NULL);
+        free (sourceuri);
+        free (fullpath);
+        return 0;
+    }
+
+    /* on demand file serving check */
+    config = config_get_config();
+    if (config->fileserve == 0)
+    {
+        DEBUG1 ("on demand file \"%s\" refused", fullpath);
+        client_send_404 (httpclient, "The file you requested could not be found");
+        config_release_config();
+        free (fullpath);
+        return -1;
+    }
     config_release_config();
 
-    client->file = fopen(path, "rb");
-    if(!client->file) {
-        client_send_404(httpclient, "File not readable");
+    if (S_ISREG (file_buf.st_mode) == 0)
+    {
+        client_send_404 (httpclient, "The file you requested could not be found");
+        WARN1 ("found requested file but there is no handler for it: %s", fullpath);
+        free (fullpath);
         return -1;
     }
 
-    client->client = httpclient;
-    client->offset = 0;
-    client->datasize = 0;
-    client->ready = 0;
-    client->content_length = 0;
-    client->buf = malloc(BUFSIZE);
-    if (stat(path, &file_buf) == 0) {
-        client->content_length = (int64_t)file_buf.st_size;
-    }
-
-    global_lock();
-    if(global.clients >= client_limit) {
-        global_unlock();
-        httpclient->respcode = 504;
-        bytes = sock_write(httpclient->con->sock,
-                "HTTP/1.0 504 Server Full\r\n"
-                "Content-Type: text/html\r\n\r\n"
-                "<b>Server is full, try again later.</b>\r\n");
-        if(bytes > 0) httpclient->con->sent_bytes = bytes;
-        fserve_client_destroy(client);
+    file = fopen (fullpath, "rb");
+    free (fullpath);
+    if (file == NULL)
+    {
+        WARN1 ("Problem accessing file \"%s\"", fullpath);
+        client_send_404 (httpclient, "File not readable");
         return -1;
     }
-    global.clients++;
-    global_unlock();
 
-    range = httpp_getvar (client->client->parser, "range");
+    content_length = (int64_t)file_buf.st_size;
+    range = httpp_getvar (httpclient->parser, "range");
 
     if (range != NULL) {
         ret = sscanf(range, "bytes=" FORMAT_INT64 "-", &rangenumber);
@@ -416,9 +487,9 @@ int fserve_client_create(client_t *httpclient, char *path)
             rangeproblem = 1;
         }
         if (!rangeproblem) {
-            ret = fseek(client->file, rangenumber, SEEK_SET);
+            ret = fseek (file, rangenumber, SEEK_SET);
             if (ret != -1) {
-                new_content_len = client->content_length - rangenumber;
+                new_content_len = content_length - rangenumber;
                 if (new_content_len < 0) {
                     rangeproblem = 1;
                 }
@@ -440,7 +511,7 @@ int fserve_client_create(client_t *httpclient, char *path)
                 strflen = strftime(currenttime, 50, "%a, %d-%b-%Y %X GMT",
                                    gmtime_r(&now, &result));
                 httpclient->respcode = 206;
-                bytes = sock_write(httpclient->con->sock,
+                bytes = snprintf (httpclient->refbuf->data, BUFSIZE,
                     "HTTP/1.1 206 Partial Content\r\n"
                     "Date: %s\r\n"
                     "Content-Length: " FORMAT_INT64 "\r\n"
@@ -451,16 +522,14 @@ int fserve_client_create(client_t *httpclient, char *path)
                     new_content_len,
                     rangenumber,
                     endpos,
-                    client->content_length,
+                    content_length,
                     fserve_content_type(path));
-                if(bytes > 0) httpclient->con->sent_bytes = bytes;
             }
             else {
                 httpclient->respcode = 416;
-                bytes = sock_write(httpclient->con->sock,
+                sock_write (httpclient->con->sock,
                     "HTTP/1.0 416 Request Range Not Satisfiable\r\n\r\n");
-                if(bytes > 0) httpclient->con->sent_bytes = bytes;
-                fserve_client_destroy(client);
+                client_destroy (httpclient);
                 return -1;
             }
         }
@@ -468,49 +537,83 @@ int fserve_client_create(client_t *httpclient, char *path)
             /* If we run into any issues with the ranges
                we fallback to a normal/non-range request */
             httpclient->respcode = 416;
-            bytes = sock_write(httpclient->con->sock,
+            sock_write (httpclient->con->sock,
                 "HTTP/1.0 416 Request Range Not Satisfiable\r\n\r\n");
-            if(bytes > 0) httpclient->con->sent_bytes = bytes;
-            fserve_client_destroy(client);
+            client_destroy (httpclient);
             return -1;
         }
     }
     else {
 
         httpclient->respcode = 200;
-        bytes = sock_write(httpclient->con->sock,
+        bytes = snprintf (httpclient->refbuf->data, BUFSIZE,
             "HTTP/1.0 200 OK\r\n"
             "Content-Length: " FORMAT_INT64 "\r\n"
             "Content-Type: %s\r\n\r\n",
-            client->content_length,
+            content_length,
             fserve_content_type(path));
-        if(bytes > 0) httpclient->con->sent_bytes = bytes;
     }
+    httpclient->refbuf->len = bytes;
+    httpclient->pos = 0;
 
-    sock_set_blocking(client->client->con->sock, SOCK_NONBLOCK);
-    sock_set_nodelay(client->client->con->sock);
+    stats_event_inc (NULL, "file_connections");
+    fserve_add_client (httpclient, file);
+
+    return 0;
+}
+
+
+/* Add client to fserve thread, client needs to have refbuf set and filled
+ * but may provide a NULL file if no data needs to be read
+ */
+int fserve_add_client (client_t *client, FILE *file)
+{
+    fserve_t *fclient = calloc (1, sizeof(fserve_t));
+
+    DEBUG0 ("Adding client to file serving engine");
+    if (fclient == NULL)
+    {
+        client_send_404 (client, "memory exhausted");
+        return -1;
+    }
+    fclient->file = file;
+    fclient->client = client;
+    fclient->ready = 0;
 
     thread_mutex_lock (&pending_lock);
-    client->next = (fserve_t *)pending_list;
-    pending_list = client;
+    fclient->next = (fserve_t *)pending_list;
+    pending_list = fclient;
     thread_mutex_unlock (&pending_lock);
 
     return 0;
 }
 
-static int _free_client(void *key)
+
+/* add client to file serving engine, but just write out the buffer contents,
+ * then pass the client to the callback with the provided arg
+ */
+void fserve_add_client_callback (client_t *client, fserve_callback_t callback, void *arg)
 {
-    fserve_t *client = (fserve_t *)key;
+    fserve_t *fclient = calloc (1, sizeof(fserve_t));
 
-    fserve_client_destroy(client);
-    global_lock();
-    global.clients--;
-    global_unlock();
-    stats_event_dec(NULL, "clients");
+    DEBUG0 ("Adding client to file serving engine");
+    if (fclient == NULL)
+    {
+        client_send_404 (client, "memory exhausted");
+        return;
+    }
+    fclient->file = NULL;
+    fclient->client = client;
+    fclient->ready = 0;
+    fclient->callback = callback;
+    fclient->arg = arg;
 
-    
-    return 1;
+    thread_mutex_lock (&pending_lock);
+    fclient->next = (fserve_t *)pending_list;
+    pending_list = fclient;
+    thread_mutex_unlock (&pending_lock);
 }
+
 
 static int _delete_mapping(void *mapping) {
     mime_type *map = mapping;
@@ -536,8 +639,11 @@ static void create_mime_mappings(const char *fn) {
 
     mimetypes = avl_tree_new(_compare_mappings, NULL);
 
-    if(!mimefile)
+    if (mimefile == NULL)
+    {
+        WARN1 ("Cannot open mime type file %s", fn);
         return;
+    }
 
     while(fgets(line, 4096, mimefile))
     {

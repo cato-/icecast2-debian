@@ -32,9 +32,9 @@
 #include "stats.h"
 #include "os.h"
 #include "xslt.h"
+#include "fserve.h"
 
 #include "format.h"
-#include "format_mp3.h"
 
 #include "logging.h"
 #include "auth.h"
@@ -112,6 +112,7 @@
 #define RAW         1
 #define TRANSFORMED 2
 #define PLAINTEXT   3
+
 int admin_get_command(char *command)
 {
     if(!strcmp(command, FALLBACK_RAW_REQUEST))
@@ -196,7 +197,6 @@ static void admin_handle_mount_request(client_t *client, source_t *source,
 static void admin_handle_general_request(client_t *client, int command);
 static void admin_send_response(xmlDocPtr doc, client_t *client, 
         int response, char *xslt_template);
-static void html_write(client_t *client, char *fmt, ...);
 
 /* build an XML doc containing information about currently running sources.
  * If a mountpoint is passed then that source will not be added to the XML
@@ -227,24 +227,39 @@ xmlDocPtr admin_build_sourcelist (const char *mount)
             continue;
         }
 
-        if (source->running)
+        if (source->running || source->on_demand)
         {
+            ice_config_t *config;
+            mount_proxy *mountinfo;
+
             srcnode = xmlNewChild(xmlnode, NULL, "source", NULL);
             xmlSetProp(srcnode, "mount", source->mount);
 
             xmlNewChild(srcnode, NULL, "fallback", 
                     (source->fallback_mount != NULL)?
                     source->fallback_mount:"");
-            snprintf(buf, sizeof(buf), "%ld", source->listeners);
+            snprintf (buf, sizeof(buf), "%lu", source->listeners);
             xmlNewChild(srcnode, NULL, "listeners", buf);
-            snprintf(buf, sizeof(buf), "%lu",
-                    (unsigned long)(now - source->con->con_time));
-            xmlNewChild(srcnode, NULL, "Connected", buf);
-            xmlNewChild(srcnode, NULL, "content-type", 
-                    source->format->contenttype);
-            if (source->authenticator) {
-                xmlNewChild(srcnode, NULL, "authenticator", 
-                    source->authenticator->type);
+
+            config = config_get_config();
+            mountinfo = config_find_mount (config, source->mount);
+            if (mountinfo && mountinfo->auth)
+            {
+                xmlNewChild(srcnode, NULL, "authenticator",
+                        mountinfo->auth->type);
+            }
+            config_release_config();
+
+            if (source->running)
+            {
+                if (source->client) 
+                {
+                    snprintf (buf, sizeof(buf), "%lu",
+                            (unsigned long)(now - source->con->con_time));
+                    xmlNewChild (srcnode, NULL, "Connected", buf);
+                }
+                xmlNewChild (srcnode, NULL, "content-type", 
+                        source->format->contenttype);
             }
         }
         node = avl_get_next(node);
@@ -255,42 +270,44 @@ xmlDocPtr admin_build_sourcelist (const char *mount)
 void admin_send_response(xmlDocPtr doc, client_t *client, 
         int response, char *xslt_template)
 {
-    xmlChar *buff = NULL;
-    int len = 0;
-    ice_config_t *config;
-    char *fullpath_xslt_template;
-    int fullpath_xslt_template_len;
-    char *adminwebroot;
-
-    client->respcode = 200;
-    if (response == RAW) {
-        xmlDocDumpMemory(doc, &buff, &len);
-        html_write(client, "HTTP/1.0 200 OK\r\n"
-               "Content-Length: %d\r\n"
+    if (response == RAW)
+    {
+        xmlChar *buff = NULL;
+        int len = 0;
+        unsigned int buf_len;
+        const char *http = "HTTP/1.0 200 OK\r\n"
                "Content-Type: text/xml\r\n"
-               "\r\n", len);
-        html_write(client, "%s", buff);
+               "Content-Length: ";
+        xmlDocDumpMemory(doc, &buff, &len);
+        buf_len = strlen (http) + len + 20;
+        client_set_queue (client, NULL);
+        client->refbuf = refbuf_new (buf_len);
+        len = snprintf (client->refbuf->data, buf_len, "%s%d\r\n\r\n%s", http, len, buff);
+        client->refbuf->len = len;
+        xmlFree(buff);
+        client->respcode = 200;
+        fserve_add_client (client, NULL);
     }
-    if (response == TRANSFORMED) {
-        config = config_get_config();
-        adminwebroot = config->adminroot_dir;
-        fullpath_xslt_template_len = strlen(adminwebroot) + 
-            strlen(xslt_template) + 2;
+    if (response == TRANSFORMED)
+    {
+        char *fullpath_xslt_template;
+        int fullpath_xslt_template_len;
+        ice_config_t *config = config_get_config();
+
+        fullpath_xslt_template_len = strlen (config->adminroot_dir) + 
+            strlen (xslt_template) + 2;
         fullpath_xslt_template = malloc(fullpath_xslt_template_len);
         snprintf(fullpath_xslt_template, fullpath_xslt_template_len, "%s%s%s",
-            adminwebroot, PATH_SEPARATOR, xslt_template);
+            config->adminroot_dir, PATH_SEPARATOR, xslt_template);
         config_release_config();
-        html_write(client, "HTTP/1.0 200 OK\r\n"
-               "Content-Type: text/html\r\n"
-               "\r\n");
+
         DEBUG1("Sending XSLT (%s)", fullpath_xslt_template);
         xslt_transform(doc, fullpath_xslt_template, client);
         free(fullpath_xslt_template);
     }
-    if (buff) {
-        xmlFree(buff);
-    }
 }
+
+
 void admin_handle_request(client_t *client, char *uri)
 {
     char *mount, *command_string;
@@ -370,7 +387,7 @@ void admin_handle_request(client_t *client, char *uri)
         }
         else
         {
-            if (source->running == 0)
+            if (source->running == 0 && source->on_demand == 0)
             {
                 avl_tree_unlock (global.source_tree);
                 INFO2("Received admin command %s on unavailable mount \"%s\"",
@@ -531,27 +548,15 @@ static void admin_handle_mount_request(client_t *client, source_t *source,
 
 static void html_success(client_t *client, char *message)
 {
-    int bytes;
-
     client->respcode = 200;
-    bytes = sock_write(client->con->sock, 
+    snprintf (client->refbuf->data, PER_CLIENT_REFBUF_SIZE,
             "HTTP/1.0 200 OK\r\nContent-Type: text/html\r\n\r\n" 
             "<html><head><title>Admin request successful</title></head>"
             "<body><p>%s</p></body></html>", message);
-    if(bytes > 0) client->con->sent_bytes = bytes;
-    client_destroy(client);
+    client->refbuf->len = strlen (client->refbuf->data);
+    fserve_add_client (client, NULL);
 }
 
-static void html_write(client_t *client, char *fmt, ...)
-{
-    int bytes;
-    va_list ap;
-
-    va_start(ap, fmt);
-    bytes = sock_write_fmt(client->con->sock, fmt, ap);
-    va_end(ap);
-    if(bytes > 0) client->con->sent_bytes = bytes;
-}
 
 static void command_move_clients(client_t *client, source_t *source,
     int response)
@@ -573,7 +578,6 @@ static void command_move_clients(client_t *client, source_t *source,
         admin_send_response(doc, client, response, 
              MOVECLIENTS_TRANSFORMED_REQUEST);
         xmlFreeDoc(doc);
-        client_destroy(client);
         return;
     }
 
@@ -591,11 +595,13 @@ static void command_move_clients(client_t *client, source_t *source,
         return;
     }
 
-    if (dest->running == 0)
+    if (dest->running == 0 && dest->on_demand == 0)
     {
         client_send_400 (client, "Destination not running");
         return;
     }
+
+    INFO2 ("source is \"%s\", destination is \"%s\"", source->mount, dest->mount);
 
     doc = xmlNewDoc("1.0");
     node = xmlNewDocNode(doc, NULL, "iceresponse", NULL);
@@ -612,7 +618,6 @@ static void command_move_clients(client_t *client, source_t *source,
     admin_send_response(doc, client, response, 
         ADMIN_XSL_RESPONSE);
     xmlFreeDoc(doc);
-    client_destroy(client);
 }
 
 static void command_show_listeners(client_t *client, source_t *source,
@@ -633,7 +638,7 @@ static void command_show_listeners(client_t *client, source_t *source,
     xmlDocSetRootElement(doc, node);
 
     memset(buf, '\000', sizeof(buf));
-    snprintf(buf, sizeof(buf)-1, "%ld", source->listeners);
+    snprintf (buf, sizeof(buf), "%lu", source->listeners);
     xmlNewChild(srcnode, NULL, "Listeners", buf);
 
     avl_tree_rlock(source->client_tree);
@@ -651,7 +656,7 @@ static void command_show_listeners(client_t *client, source_t *source,
             xmlNewChild(listenernode, NULL, "UserAgent", "Unknown");
         }
         memset(buf, '\000', sizeof(buf));
-        snprintf(buf, sizeof(buf)-1, "%ld", now - current->con->con_time);
+        snprintf(buf, sizeof(buf), "%lu", (unsigned long)(now - current->con->con_time));
         xmlNewChild(listenernode, NULL, "Connected", buf);
         memset(buf, '\000', sizeof(buf));
         snprintf(buf, sizeof(buf)-1, "%lu", current->con->id);
@@ -666,7 +671,6 @@ static void command_show_listeners(client_t *client, source_t *source,
     admin_send_response(doc, client, response, 
         LISTCLIENTS_TRANSFORMED_REQUEST);
     xmlFreeDoc(doc);
-    client_destroy(client);
 }
 
 static void command_buildm3u(client_t *client, source_t *source,
@@ -674,34 +678,31 @@ static void command_buildm3u(client_t *client, source_t *source,
 {
     char *username = NULL;
     char *password = NULL;
-    char *host = NULL;
-    int port = 0;
     ice_config_t *config;
 
     COMMAND_REQUIRE(client, "username", username);
     COMMAND_REQUIRE(client, "password", password);
 
-    config = config_get_config();
-    host = strdup(config->hostname);
-    port = config->port;
-    config_release_config();
-
     client->respcode = 200;
-    sock_write(client->con->sock,
+    config = config_get_config();
+    snprintf (client->refbuf->data, PER_CLIENT_REFBUF_SIZE,
         "HTTP/1.0 200 OK\r\n"
         "Content-Type: audio/x-mpegurl\r\n"
         "Content-Disposition = attachment; filename=listen.m3u\r\n\r\n" 
         "http://%s:%s@%s:%d%s\r\n",
         username,
         password,
-        host,
-        port,
+        config->hostname,
+        config->port,
         source->mount
     );
+    config_release_config();
 
-    free(host);
-    client_destroy(client);
+    client->refbuf->len = strlen (client->refbuf->data);
+    fserve_add_client (client, NULL);
 }
+
+
 static void command_manageauth(client_t *client, source_t *source,
     int response)
 {
@@ -712,12 +713,21 @@ static void command_manageauth(client_t *client, source_t *source,
     char *password = NULL;
     char *message = NULL;
     int ret = AUTH_OK;
+    ice_config_t *config = config_get_config ();
+    mount_proxy *mountinfo = config_find_mount (config, source->mount);
 
     if((COMMAND_OPTIONAL(client, "action", action))) {
+        if (mountinfo == NULL || mountinfo->auth == NULL)
+        {
+            WARN1 ("manage auth request for %s but no facility available", source->mount);
+            config_release_config ();
+            client_send_404 (client, "no such auth facility");
+            return;
+        }
         if (!strcmp(action, "add")) {
             COMMAND_REQUIRE(client, "username", username);
             COMMAND_REQUIRE(client, "password", password);
-            ret = auth_adduser(source, username, password);
+            ret = mountinfo->auth->adduser(mountinfo->auth, username, password);
             if (ret == AUTH_FAILED) {
                 message = strdup("User add failed - check the icecast error log");
             }
@@ -730,7 +740,7 @@ static void command_manageauth(client_t *client, source_t *source,
         }
         if (!strcmp(action, "delete")) {
             COMMAND_REQUIRE(client, "username", username);
-            ret = auth_deleteuser(source, username);
+            ret = mountinfo->auth->deleteuser(mountinfo->auth, username);
             if (ret == AUTH_FAILED) {
                 message = strdup("User delete failed - check the icecast error log");
             }
@@ -752,7 +762,10 @@ static void command_manageauth(client_t *client, source_t *source,
 
     xmlDocSetRootElement(doc, node);
 
-    auth_get_userlist(source, srcnode);
+    if (mountinfo && mountinfo->auth && mountinfo->auth->listuser)
+        mountinfo->auth->listuser (mountinfo->auth, srcnode);
+
+    config_release_config ();
 
     admin_send_response(doc, client, response, 
         MANAGEAUTH_TRANSFORMED_REQUEST);
@@ -760,7 +773,6 @@ static void command_manageauth(client_t *client, source_t *source,
         free(message);
     }
     xmlFreeDoc(doc);
-    client_destroy(client);
 }
 
 static void command_kill_source(client_t *client, source_t *source,
@@ -780,7 +792,6 @@ static void command_kill_source(client_t *client, source_t *source,
     admin_send_response(doc, client, response, 
         ADMIN_XSL_RESPONSE);
     xmlFreeDoc(doc);
-    client_destroy(client);
 }
 
 static void command_kill_client(client_t *client, source_t *source,
@@ -825,7 +836,6 @@ static void command_kill_client(client_t *client, source_t *source,
     admin_send_response(doc, client, response, 
         ADMIN_XSL_RESPONSE);
     xmlFreeDoc(doc);
-    client_destroy(client);
 }
 
 static void command_fallback(client_t *client, source_t *source,
@@ -872,7 +882,6 @@ static void command_metadata(client_t *client, source_t *source,
         admin_send_response(doc, client, response, 
             ADMIN_XSL_RESPONSE);
         xmlFreeDoc(doc);
-        client_destroy(client);
         return;
     }
 
@@ -883,7 +892,7 @@ static void command_metadata(client_t *client, source_t *source,
         if (song)
         {
             plugin->set_tag (plugin, "song", song);
-            DEBUG2("Metadata on mountpoint %s changed to \"%s\"", source->mount, song);
+            INFO2 ("Metadata on mountpoint %s changed to \"%s\"", source->mount, song);
         }
         else
         {
@@ -904,7 +913,6 @@ static void command_metadata(client_t *client, source_t *source,
         admin_send_response(doc, client, response, 
             ADMIN_XSL_RESPONSE);
         xmlFreeDoc(doc);
-        client_destroy(client);
         return;
     }
 
@@ -913,24 +921,17 @@ static void command_metadata(client_t *client, source_t *source,
     admin_send_response(doc, client, response, 
         ADMIN_XSL_RESPONSE);
     xmlFreeDoc(doc);
-    client_destroy(client);
 }
 
 static void command_shoutcast_metadata(client_t *client, source_t *source)
 {
     char *action;
     char *value;
-    mp3_state *state;
 
     DEBUG0("Got shoutcast metadata update request");
 
     COMMAND_REQUIRE(client, "mode", action);
     COMMAND_REQUIRE(client, "song", value);
-
-    if (source->format->type == FORMAT_TYPE_OGG) {
-        client_send_400 (client, "Cannot update metadata on vorbis streams");
-        return;
-    }
 
     if (strcmp (action, "updinfo") != 0)
     {
@@ -938,15 +939,18 @@ static void command_shoutcast_metadata(client_t *client, source_t *source)
         return;
     }
 
-    state = source->format->_state;
+    if (source->format && source->format->set_tag)
+    {
+        source->format->set_tag (source->format, "title", value);
 
-    mp3_set_tag (source->format, "title", value);
-
-    DEBUG2("Metadata on mountpoint %s changed to \"%s\"", 
-        source->mount, value);
-
-
-    html_success(client, "Metadata update successful");
+        DEBUG2("Metadata on mountpoint %s changed to \"%s\"", 
+                source->mount, value);
+        html_success(client, "Metadata update successful");
+    }
+    else
+    {
+        client_send_400 (client, "mountpoint will not accept URL updates");
+    }
 }
 
 static void command_stats(client_t *client, int response) {
@@ -957,7 +961,6 @@ static void command_stats(client_t *client, int response) {
     stats_get_xml(&doc, 1);
     admin_send_response(doc, client, response, STATS_TRANSFORMED_REQUEST);
     xmlFreeDoc(doc);
-    client_destroy(client);
     return;
 }
 
@@ -968,30 +971,46 @@ static void command_list_mounts(client_t *client, int response)
     avl_tree_rlock (global.source_tree);
     if (response == PLAINTEXT)
     {
-        char buffer [4096], *buf = buffer;
-        unsigned int remaining = sizeof (buffer);
-        int ret = snprintf (buffer, remaining,
+        char *buf;
+        int remaining = PER_CLIENT_REFBUF_SIZE;
+        int ret;
+        ice_config_t *config = config_get_config ();
+        mount_proxy *mountinfo = config->mounts;
+
+        buf = client->refbuf->data;
+        ret = snprintf (buf, remaining,
                 "HTTP/1.0 200 OK\r\nContent-Type: text/html\r\n\r\n");
 
-        avl_node *node = avl_get_first(global.source_tree);
-        while (node && ret > 0 && (unsigned)ret < remaining)
+        while (mountinfo && ret > 0 && ret < remaining)
         {
-            source_t *source = (source_t *)node->key;
-            node = avl_get_next(node);
+            mount_proxy *current = mountinfo;
+            source_t *source;
+            mountinfo = mountinfo->next;
+
+            /* now check that a source is available */
+            source = source_find_mount (current->mountname);
+
+            if (source == NULL)
+                continue;
+            if (source->running == 0 && source->on_demand == 0)
+                continue;
             if (source->hidden)
                 continue;
             remaining -= ret;
             buf += ret;
-            ret = snprintf (buf, remaining, "%s\n", source->mount);
+            ret = snprintf (buf, remaining, "%s\n", current->mountname);
         }
         avl_tree_unlock (global.source_tree);
+        config_release_config();
+
         /* handle last line */
-        if (ret > 0 && (unsigned)ret < remaining)
+        if (ret > 0 && ret < remaining)
         {
             remaining -= ret;
             buf += ret;
         }
-        sock_write_bytes (client->con->sock, buffer, sizeof (buffer)-remaining);
+        client->refbuf->len = PER_CLIENT_REFBUF_SIZE - remaining;
+        fserve_add_client (client, NULL);
     }
     else
     {
@@ -1002,9 +1021,6 @@ static void command_list_mounts(client_t *client, int response)
             LISTMOUNTS_TRANSFORMED_REQUEST);
         xmlFreeDoc(doc);
     }
-    client_destroy(client);
-
-    return;
 }
 
 static void command_updatemetadata(client_t *client, source_t *source,
@@ -1022,5 +1038,4 @@ static void command_updatemetadata(client_t *client, source_t *source,
     admin_send_response(doc, client, response, 
         UPDATEMETADATA_TRANSFORMED_REQUEST);
     xmlFreeDoc(doc);
-    client_destroy(client);
 }
