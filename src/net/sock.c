@@ -50,12 +50,13 @@
 #define EWOULDBLOCK WSAEWOULDBLOCK
 #define EALREADY WSAEALREADY
 #define socklen_t    int
+#ifndef __MINGW32__
 #define va_copy(ap1, ap2) memcpy(&ap1, &ap2, sizeof(va_list))
+#endif
 #endif
 
 #include "sock.h"
 #include "resolver.h"
-
 
 /* sock_initialize
 **
@@ -119,6 +120,15 @@ int sock_error(void)
 #endif
 }
 
+static void sock_set_error(int val)
+{
+#ifdef _WIN32
+     WSASetLastError (val);
+#else
+     errno = val;
+#endif
+}
+
 /* sock_recoverable
 **
 ** determines if the socket error is recoverable
@@ -126,23 +136,43 @@ int sock_error(void)
 */
 int sock_recoverable(int error)
 {
-    return (error == 0 || error == EAGAIN || error == EINTR || 
-            error == EINPROGRESS || error == EWOULDBLOCK);
+    switch (error)
+    {
+    case 0:
+    case EAGAIN:
+    case EINTR:
+    case EINPROGRESS:
+#if defined(EWOULDBLOCK) && EWOULDBLOCK != EAGAIN
+    case EWOULDBLOCK:
+#endif
+#ifdef ERESTART
+    case ERESTART:
+#endif
+        return 1;
+    default:
+        return 0;
+    }
 }
 
 int sock_stalled (int error)
 {
-    return error == EAGAIN || error == EINPROGRESS || error == EWOULDBLOCK || 
-        error == EALREADY;
+    switch (error)
+    {
+    case EAGAIN:
+    case EINPROGRESS:
+    case EALREADY:
+#if defined(EWOULDBLOCK) && EWOULDBLOCK != EAGAIN
+    case EWOULDBLOCK:
+#endif
+#ifdef ERESTART
+    case ERESTART:
+#endif
+        return 1;
+    default:
+        return 0;
+    }
 }
 
-#if 0
-/* what is this??? */
-static int sock_success (int error)
-{
-    return error == 0;
-}
-#endif
 
 static int sock_connect_pending (int error)
 {
@@ -160,7 +190,8 @@ int sock_valid_socket(sock_t sock)
     socklen_t optlen;
 
     optlen = sizeof(int);
-    ret = getsockopt(sock, SOL_SOCKET, SO_TYPE, &optval, &optlen);
+    /* apparently on windows getsockopt.optval is a char * */
+    ret = getsockopt(sock, SOL_SOCKET, SO_TYPE, (void*) &optval, &optlen);
 
     return (ret == 0);
 }
@@ -193,7 +224,11 @@ int inet_aton(const char *s, struct in_addr *a)
 int sock_set_blocking(sock_t sock, const int block)
 {
 #ifdef _WIN32
+#ifdef __MINGW32__
+    u_long varblock = block;
+#else
     int varblock = block;
+#endif
 #endif
 
     if ((!sock_valid_socket(sock)) || (block < 0) || (block > 1))
@@ -327,6 +362,35 @@ int sock_write(sock_t sock, const char *fmt, ...)
     return rc;
 }
 
+#ifdef HAVE_OLD_VSNPRINTF
+int sock_write_fmt(sock_t sock, const char *fmt, va_list ap)
+{
+    va_list ap_local;
+    unsigned int len = 1024;
+    char *buff = NULL;
+    int ret;
+
+    /* don't go infinite, but stop at some huge limit */
+    while (len < 2*1024*1024)
+    {
+        char *tmp = realloc (buff, len);
+        ret = -1;
+        if (tmp == NULL)
+            break;
+        buff = tmp;
+        va_copy (ap_local, ap);
+        ret = vsnprintf (buff, len, fmt, ap_local);
+        if (ret > 0)
+        {
+            ret = sock_write_bytes (sock, buff, ret);
+            break;
+        }
+        len += 8192;
+    }
+    free (buff);
+    return ret;
+}
+#else
 int sock_write_fmt(sock_t sock, const char *fmt, va_list ap)
 {
     char buffer [1024], *buff = buffer;
@@ -359,6 +423,7 @@ int sock_write_fmt(sock_t sock, const char *fmt, va_list ap)
 
     return rc;
 }
+#endif
 
 
 int sock_read_bytes(sock_t sock, char *buff, const int len)
@@ -413,30 +478,48 @@ int sock_read_line(sock_t sock, char *buff, const int len)
     }
 }
 
-/* see if a connection can be written to
-** return -1 unable to check
-** return 0 for not yet
-** return 1 for ok 
-*/
-int sock_connected (int sock, unsigned timeout)
+/* see if a connection has been established. If timeout is < 0 then wait
+ * indefinitely, else wait for the stated number of seconds.
+ * return SOCK_TIMEOUT for timeout
+ * return SOCK_ERROR for failure
+ * return 0 for try again, interrupted
+ * return 1 for ok 
+ */
+int sock_connected (int sock, int timeout)
 {
     fd_set wfds;
     int val = SOCK_ERROR;
     socklen_t size = sizeof val;
-    struct timeval tv;
+    struct timeval tv, *timeval = NULL;
 
-    tv.tv_sec = timeout;
-    tv.tv_usec = 0;
+    /* make a timeout of <0 be indefinite */
+    if (timeout >= 0)
+    {
+        tv.tv_sec = timeout;
+        tv.tv_usec = 0;
+        timeval = &tv;
+    }
 
     FD_ZERO(&wfds);
     FD_SET(sock, &wfds);
 
-    switch (select(sock + 1, NULL, &wfds, NULL, &tv))
+    switch (select(sock + 1, NULL, &wfds, NULL, timeval))
     {
-        case 0:  return SOCK_TIMEOUT;
-        default: if (getsockopt(sock, SOL_SOCKET, SO_ERROR, &val, &size) < 0)
-                     val = SOCK_ERROR;
-        case -1: return val;
+        case 0:
+            return SOCK_TIMEOUT;
+        default:
+            /* on windows getsockopt.val is defined as char* */
+            if (getsockopt(sock, SOL_SOCKET, SO_ERROR, (void*) &val, &size) == 0)
+            {
+                if (val == 0)
+                    return 1;
+                sock_set_error (val);
+            }
+            /* fall through */
+        case -1:
+            if (sock_recoverable (sock_error()))
+                return 0;
+            return SOCK_ERROR;
     }
 }
 
@@ -480,8 +563,11 @@ int sock_connect_non_blocking (const char *hostname, const unsigned port)
     return sock;
 }
 
-
-sock_t sock_connect_wto(const char *hostname, const int port, const int timeout)
+/* issue a connect, but return after the timeout (seconds) is reached. If
+ * timeout is 0 or less then we will wait until the OS gives up on the connect
+ * The socket is returned
+ */
+sock_t sock_connect_wto(const char *hostname, int port, int timeout)
 {
     int sock = SOCK_ERROR;
     struct addrinfo *ai, *head, hints;
@@ -498,31 +584,39 @@ sock_t sock_connect_wto(const char *hostname, const int port, const int timeout)
     ai = head;
     while (ai)
     {
-        if ((sock = socket (ai->ai_family, ai->ai_socktype, ai->ai_protocol)) > -1)
+        if ((sock = socket (ai->ai_family, ai->ai_socktype, ai->ai_protocol)) >= 0)
         {
-            if (timeout)
-            {
+            if (timeout > 0)
                 sock_set_blocking (sock, SOCK_NONBLOCK);
-                if (connect (sock, ai->ai_addr, ai->ai_addrlen) < 0)
+
+            if (connect (sock, ai->ai_addr, ai->ai_addrlen) == 0)
+                break;
+
+            /* loop as the connect maybe async */
+            while (sock != SOCK_ERROR)
+            {
+                if (sock_recoverable (sock_error()))
                 {
-                    if (sock_connected (sock, timeout) > 0)
+                    int connected = sock_connected (sock, timeout);
+                    if (connected == 0)  /* try again, interrupted */
+                        continue;
+                    if (connected == 1) /* connected */
                     {
-                        sock_set_blocking(sock, SOCK_BLOCK);
+                        if (timeout >= 0)
+                            sock_set_blocking(sock, SOCK_BLOCK);
                         break;
                     }
                 }
+                sock_close (sock);
+                sock = SOCK_ERROR;
             }
-            else
-            {
-                if (connect (sock, ai->ai_addr, ai->ai_addrlen) == 0)
-                    break;
-            }
-            sock_close (sock);
+            if (sock != SOCK_ERROR)
+                break;
         }
-        sock = SOCK_ERROR;
         ai = ai->ai_next;
     }
-    if (head) freeaddrinfo (head);
+    if (head)
+        freeaddrinfo (head);
 
     return sock;
 }

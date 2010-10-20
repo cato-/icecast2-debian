@@ -66,15 +66,22 @@ EXEEXT = @EXEEXT@
 OBJEXT = @OBJEXT@
 PATH_SEPARATOR = @PATH_SEPARATOR@
 AMTAR = @AMTAR@
+AR = @AR@
 AS = @AS@
 AWK = @AWK@
 CC = @CC@
 CFLAGS = @CFLAGS@
 CURL_CONFIG = @CURL_CONFIG@
+CXX = @CXX@
+CXXCPP = @CXXCPP@
 DEBUG = @DEBUG@
 DEPDIR = @DEPDIR@
 DLLTOOL = @DLLTOOL@
 ECHO = @ECHO@
+EGREP = @EGREP@
+F77 = @F77@
+GCJ = @GCJ@
+GCJFLAGS = @GCJFLAGS@
 ICECAST_OPTIONAL = @ICECAST_OPTIONAL@
 INSTALL_STRIP_PROGRAM = @INSTALL_STRIP_PROGRAM@
 LIBS = @LIBS@
@@ -93,7 +100,11 @@ PTHREAD_CFLAGS = @PTHREAD_CFLAGS@
 PTHREAD_CPPFLAGS = @PTHREAD_CPPFLAGS@
 PTHREAD_LIBS = @PTHREAD_LIBS@
 RANLIB = @RANLIB@
+RC = @RC@
 STRIP = @STRIP@
+THEORA_CFLAGS = @THEORA_CFLAGS@
+THEORA_LDFLAGS = @THEORA_LDFLAGS@
+THEORA_LIBS = @THEORA_LIBS@
 VERSION = @VERSION@
 VORBISENC_LIBS = @VORBISENC_LIBS@
 VORBISFILE_LIBS = @VORBISFILE_LIBS@
@@ -102,6 +113,7 @@ VORBIS_LDFLAGS = @VORBIS_LDFLAGS@
 VORBIS_LIBS = @VORBIS_LIBS@
 XIPH_CFLAGS = @XIPH_CFLAGS@
 XIPH_CPPFLAGS = @XIPH_CPPFLAGS@
+XIPH_LDFLAGS = @XIPH_LDFLAGS@
 XIPH_LIBS = @XIPH_LIBS@
 XMLCONFIG = @XMLCONFIG@
 XSLTCONFIG = @XSLTCONFIG@
@@ -115,11 +127,12 @@ SUBDIRS = res
 
 EXTRA_DIST = ConfigTab.cpp ConfigTab.h Icecast2win.clw Icecast2win.cpp \
     Icecast2win.dsp Icecast2win.dsw Icecast2win.h Icecast2win.rc \
-    Icecast2winDlg.cpp Icecast2winDlg.h Makefile.am ResizableDialog.cpp \
-    ResizableDialog.h StatsTab.cpp StatsTab.h Status.cpp Status.h StdAfx.cpp \
+    Icecast2winDlg.cpp Icecast2winDlg.h Makefile.am \
+    StatsTab.cpp StatsTab.h Status.cpp Status.h StdAfx.cpp \
     StdAfx.h TabCtrlSSL.cpp TabCtrlSSL.h TabPageSSL.cpp TabPageSSL.h black.bmp \
     colors.h icecast.dsp icecast.ico icecast2.iss icecast2logo2.bmp\
-    resource.h running.bmp stopped.bmp TRAYNOT.h Traynot.cpp
+    resource.h running.bmp stopped.bmp TRAYNOT.h Traynot.cpp \
+    icecast2_console.dsw icecast2_console.dsp
 
 subdir = win32
 mkinstalldirs = $(SHELL) $(top_srcdir)/mkinstalldirs

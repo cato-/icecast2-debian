@@ -1,3 +1,15 @@
+/* Icecast
+ *
+ * This program is distributed under the GNU General Public License, version 2.
+ * A copy of this license is included with this source.
+ *
+ * Copyright 2000-2004, Jack Moffitt <jack@xiph.org, 
+ *                      Michael Smith <msmith@xiph.org>,
+ *                      oddsock <oddsock@xiph.org>,
+ *                      Karl Heyes <karl@xiph.org>
+ *                      and others (see AUTHORS for details).
+ */
+
 #ifndef __SOURCE_H__
 #define __SOURCE_H__
 
@@ -7,6 +19,8 @@
 #include "format.h"
 
 #include <stdio.h>
+
+struct auth_tag;
 
 typedef struct source_tag
 {
@@ -29,28 +43,52 @@ typedef struct source_tag
     avl_tree *pending_tree;
 
     rwlock_t *shutdown_rwlock;
-    ypdata_t *ypdata[MAX_YP_DIRECTORIES];
     util_dict *audio_info;
 
     char *dumpfilename; /* Name of a file to dump incoming stream to */
     FILE *dumpfile;
 
-    int    num_yp_directories;
     long listeners;
     long max_listeners;
     int yp_public;
-    int send_return;
+    int yp_prevent;
+    struct auth_tag *authenticator;
+    int fallback_override;
+    int no_mount;
+    int shoutcast_compat;
+
+    /* per source burst handling for connecting clients */
+    unsigned int burst_size;    /* trigger level for burst on connect */
+    unsigned int burst_offset; 
+    refbuf_t *burst_point;
+
+    unsigned int queue_size;
+    unsigned int queue_size_limit;
+
+    unsigned timeout;  /* source timeout in seconds */
+    int hidden;
+    time_t last_read;
+    int short_delay;
+
+    refbuf_t *stream_data;
+    refbuf_t *stream_data_tail;
+
 } source_t;
 
-source_t *source_create(client_t *client, connection_t *con, 
-        http_parser_t *parser, const char *mount, format_type_t type,
-        mount_proxy *mountinfo);
+source_t *source_reserve (const char *mount);
+void *source_client_thread (void *arg);
+void source_apply_mount (source_t *source, mount_proxy *mountinfo);
+void source_clear_source (source_t *source);
 source_t *source_find_mount(const char *mount);
+source_t *source_find_mount_raw(const char *mount);
 client_t *source_find_client(source_t *source, int id);
 int source_compare_sources(void *arg, void *a, void *b);
-int source_free_source(void *key);
+void source_free_source(source_t *source);
+void source_move_clients (source_t *source, source_t *dest);
 int source_remove_client(void *key);
-void *source_main(void *arg);
+void source_main(source_t *source);
+
+extern mutex_t move_clients_mutex;
 
 #endif
 

@@ -1,13 +1,27 @@
+/* Icecast
+ *
+ * This program is distributed under the GNU General Public License, version 2.
+ * A copy of this license is included with this source.
+ *
+ * Copyright 2000-2004, Jack Moffitt <jack@xiph.org, 
+ *                      Michael Smith <msmith@xiph.org>,
+ *                      oddsock <oddsock@xiph.org>,
+ *                      Karl Heyes <karl@xiph.org>
+ *                      and others (see AUTHORS for details).
+ */
+
 #ifdef HAVE_CONFIG_H
 #include <config.h>
 #endif
 
 #include "event.h"
 #include "cfgfile.h"
+#include "yp.h"
 
 #include "refbuf.h"
 #include "client.h"
 #include "logging.h"
+#include "slave.h"
 
 #define CATMODULE "event"
 
@@ -43,7 +57,9 @@ void event_config_read(void *arg)
     else {
         config_clear(config);
         config_set_config(&new_config);
-        restart_logging ();
+        restart_logging (config_get_config_unlocked());
+        slave_recheck();
+        yp_recheck_config (config_get_config_unlocked());
 
         config_release_config();
     }

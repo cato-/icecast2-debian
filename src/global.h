@@ -1,3 +1,15 @@
+/* Icecast
+ *
+ * This program is distributed under the GNU General Public License, version 2.
+ * A copy of this license is included with this source.
+ *
+ * Copyright 2000-2004, Jack Moffitt <jack@xiph.org, 
+ *                      Michael Smith <msmith@xiph.org>,
+ *                      oddsock <oddsock@xiph.org>,
+ *                      Karl Heyes <karl@xiph.org>
+ *                      and others (see AUTHORS for details).
+ */
+
 #ifndef __GLOBAL_H__
 #define __GLOBAL_H__
 
@@ -6,11 +18,12 @@
 #define ICE_RUNNING 1
 #define ICE_HALTING 2
 
-#define ICECAST_VERSION_STRING "Icecast 2.0-alpha2/cvs"
+#define ICECAST_VERSION_STRING "Icecast " PACKAGE_VERSION
 
 #define MAX_LISTEN_SOCKETS 10
 
 #include "thread/thread.h"
+#include "slave.h"
 
 typedef struct ice_global_tag
 {
@@ -24,6 +37,10 @@ typedef struct ice_global_tag
     int schedule_config_reread;
 
     avl_tree *source_tree;
+    /* for locally defined relays */
+    struct _relay_server *relays;
+    /* relays retrieved from master */
+    struct _relay_server *master_relays;
 
     cond_t shutdown_cond;
 } ice_global_t;

@@ -1,3 +1,15 @@
+/* Icecast
+ *
+ * This program is distributed under the GNU General Public License, version 2.
+ * A copy of this license is included with this source.
+ *
+ * Copyright 2000-2004, Jack Moffitt <jack@xiph.org, 
+ *                      Michael Smith <msmith@xiph.org>,
+ *                      oddsock <oddsock@xiph.org>,
+ *                      Karl Heyes <karl@xiph.org>
+ *                      and others (see AUTHORS for details).
+ */
+
 #ifdef HAVE_CONFIG_H
 #include <config.h>
 #endif
@@ -16,6 +28,7 @@
 #include "os.h"
 #include "cfgfile.h"
 #include "logging.h"
+#include "util.h"
 
 #ifdef _WIN32
 #define snprintf _snprintf
@@ -24,7 +37,62 @@
 /* the global log descriptors */
 int errorlog = 0;
 int accesslog = 0;
+int playlistlog = 0;
 
+#ifdef _WIN32
+/* Since strftime's %z option on win32 is different, we need
+   to go through a few loops to get the same info as %z */
+int get_clf_time (char *buffer, unsigned len, struct tm *t)
+{
+    char    sign;
+    char    *timezone_string;
+    struct tm gmt;
+    time_t time1 = time(NULL);
+    int time_days, time_hours, time_tz;
+    int tempnum1, tempnum2;
+    struct tm *thetime;
+    time_t now;
+
+    gmtime_r(&time1, &gmt);
+
+    time_days = t->tm_yday - gmt.tm_yday;
+
+    if (time_days < -1) {
+        tempnum1 = 24;
+    }
+    else {
+        tempnum1 = 1;
+    }
+    if (tempnum1 < time_days) {
+       tempnum2 = -24;
+    }
+    else {
+        tempnum2 = time_days*24;
+    }
+
+    time_hours = (tempnum2 + t->tm_hour - gmt.tm_hour);
+    time_tz = time_hours * 60 + t->tm_min - gmt.tm_min;
+
+    if (time_tz < 0) {
+        sign = '-';
+        time_tz = -time_tz;
+    }
+    else {
+        sign = '+';
+    }
+    
+    timezone_string = calloc(1, 7);
+    snprintf(timezone_string, 7, " %c%.2d%.2d", sign, time_tz / 60, time_tz % 60);
+
+    now = time(NULL);
+
+    thetime = localtime(&now);
+    strftime (buffer, len-7, "%d/%b/%Y:%H:%M:%S", thetime);
+    strcat(buffer, timezone_string);
+
+    return 1;
+}
+#endif
 /* 
 ** ADDR USER AUTH DATE REQUEST CODE BYTES REFERER AGENT [TIME]
 **
@@ -44,41 +112,84 @@ void logging_access(client_t *client)
 {
     char datebuf[128];
     char reqbuf[1024];
-    struct tm *thetime;
+    struct tm thetime;
     time_t now;
     time_t stayed;
+    char *referrer, *user_agent;
 
     now = time(NULL);
 
+	localtime_r (&now, &thetime);
     /* build the data */
-    /* TODO: localtime is not threadsafe on all platforms
-    ** we should probably use localtime_r if it's available
-    */
-    PROTECT_CODE(thetime = localtime(&now); strftime(datebuf, 128, LOGGING_FORMAT_CLF, thetime))
-
+#ifdef _WIN32
+	memset(datebuf, '\000', sizeof(datebuf));
+	get_clf_time(datebuf, sizeof(datebuf)-1, &thetime);
+#else
+    strftime (datebuf, sizeof(datebuf), LOGGING_FORMAT_CLF, &thetime);
+#endif
     /* build the request */
-    snprintf(reqbuf, 1024, "%s %s %s/%s", httpp_getvar(client->parser, HTTPP_VAR_REQ_TYPE), httpp_getvar(client->parser, HTTPP_VAR_URI),
-         httpp_getvar(client->parser, HTTPP_VAR_PROTOCOL), httpp_getvar(client->parser, HTTPP_VAR_VERSION));
+    snprintf (reqbuf, sizeof(reqbuf), "%s %s %s/%s",
+            httpp_getvar (client->parser, HTTPP_VAR_REQ_TYPE),
+            httpp_getvar (client->parser, HTTPP_VAR_URI),
+            httpp_getvar (client->parser, HTTPP_VAR_PROTOCOL),
+            httpp_getvar (client->parser, HTTPP_VAR_VERSION));
 
     stayed = now - client->con->con_time;
 
-    log_write_direct(accesslog, "%s - - [%s] \"%s\" %d %lld \"%s\" \"%s\" %d",
+    referrer = httpp_getvar (client->parser, "referer");
+    if (referrer == NULL)
+        referrer = "-";
+
+    user_agent = httpp_getvar (client->parser, "user-agent");
+    if (user_agent == NULL)
+        user_agent = "-";
+
+    log_write_direct (accesslog, "%s - - [%s] \"%s\" %d %lld \"%s\" \"%s\" %u",
              client->con->ip,
              datebuf,
              reqbuf,
              client->respcode,
              client->con->sent_bytes,
-             (httpp_getvar(client->parser, "referer") != NULL) ? httpp_getvar(client->parser, "referer") : "-",
-             (httpp_getvar(client->parser, "user-agent") != NULL) ? httpp_getvar(client->parser, "user-agent") : "-",
-             (int)stayed);
+             referrer,
+             user_agent,
+             stayed);
+}
+/* This function will provide a log of metadata for each
+   mountpoint.  The metadata *must* be in UTF-8, and thus
+   you can assume that the log itself is UTF-8 encoded */
+void logging_playlist(char *mount, char *metadata, long listeners)
+{
+    char datebuf[128];
+    struct tm thetime;
+    time_t now;
+
+    if (playlistlog == -1) {
+        return;
+    }
+
+    now = time(NULL);
+
+    localtime_r (&now, &thetime);
+    /* build the data */
+#ifdef _WIN32
+    memset(datebuf, '\000', sizeof(datebuf));
+    get_clf_time(datebuf, sizeof(datebuf)-1, &thetime);
+#else
+    strftime (datebuf, sizeof(datebuf), LOGGING_FORMAT_CLF, &thetime);
+#endif
+    /* This format MAY CHANGE OVER TIME.  We are looking into finding a good
+       standard format for this, if you have any ideas, please let us know */
+    log_write_direct (playlistlog, "%s|%s|%d|%s",
+             datebuf,
+             mount,
+             listeners,
+             metadata);
 }
 
 
 
-void restart_logging ()
+void restart_logging (ice_config_t *config)
 {
-    ice_config_t *config = config_get_config_unlocked();
-
     if (strcmp (config->error_log, "-"))
     {
         char fn_error[FILENAME_MAX];
@@ -94,5 +205,13 @@ void restart_logging ()
         snprintf (fn_error, FILENAME_MAX, "%s%s%s", config->log_dir, PATH_SEPARATOR, config->access_log);
         log_set_filename (accesslog, fn_error);
         log_reopen (accesslog);
+    }
+
+    if (config->playlist_log)
+    {
+        char fn_error[FILENAME_MAX];
+        snprintf (fn_error, FILENAME_MAX, "%s%s%s", config->log_dir, PATH_SEPARATOR, config->playlist_log);
+        log_set_filename (playlistlog, fn_error);
+        log_reopen (playlistlog);
     }
 }

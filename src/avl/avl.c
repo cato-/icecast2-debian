@@ -22,7 +22,7 @@
  *
  */
 
-/* $Id: avl.c,v 1.8 2003/07/29 00:30:36 karl Exp $ */
+/* $Id: avl.c,v 1.11 2004/01/27 02:16:25 karl Exp $ */
 
 /*
  * This is a fairly straightfoward translation of a prototype
@@ -89,10 +89,12 @@ avl_tree_free_helper (avl_node * node, avl_free_key_fun_type free_key_fun)
   if (node->left) {
     avl_tree_free_helper (node->left, free_key_fun);
   }
-  free_key_fun (node->key);
+  if (free_key_fun)
+      free_key_fun (node->key);
   if (node->right) {
     avl_tree_free_helper (node->right, free_key_fun);
   }
+  thread_rwlock_destroy (&node->rwlock);
   free (node);
 }
   
@@ -103,6 +105,7 @@ avl_tree_free (avl_tree * tree, avl_free_key_fun_type free_key_fun)
     avl_tree_free_helper (tree->root->right, free_key_fun);
   }
   if (tree->root) {
+    thread_rwlock_destroy(&tree->root->rwlock);
     free (tree->root);
   }
   thread_rwlock_destroy(&tree->rwlock);
@@ -444,7 +447,8 @@ int avl_delete(avl_tree *tree, void *key, avl_free_key_fun_type free_key_fun)
   p = x->parent;
   
   /* return the key and node to storage */
-  free_key_fun (x->key);
+  if (free_key_fun)
+      free_key_fun (x->key);
   thread_rwlock_destroy (&x->rwlock);
   free (x);
 
@@ -987,12 +991,10 @@ avl_verify_balance (avl_node * node)
     long lh = avl_verify_balance (node->left);
     long rh = avl_verify_balance (node->right);
     if ((rh - lh) != AVL_GET_BALANCE(node)) {
-      fprintf (stderr, "invalid balance at node %ld\n", (long) node->key);
-      exit(1);
+      return 0;
     }
     if (((lh - rh) > 1) || ((lh - rh) < -1)) {
-      fprintf (stderr, "unbalanced at node %ld\n", (long) node->key);
-      exit(1);
+      return 0;
     }
     return (1 + AVL_MAX (lh, rh));
   }
@@ -1002,8 +1004,7 @@ static void
 avl_verify_parent (avl_node * node, avl_node * parent)
 {
   if (node->parent != parent) {
-    fprintf (stderr, "invalid parent at node %ld\n", (long) node->key);
-    exit(1);
+    return;
   }
   if (node->left) {
     avl_verify_parent (node->left, node);

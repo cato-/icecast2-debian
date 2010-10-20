@@ -1,3 +1,15 @@
+/* Icecast
+ *
+ * This program is distributed under the GNU General Public License, version 2.
+ * A copy of this license is included with this source.
+ *
+ * Copyright 2000-2004, Jack Moffitt <jack@xiph.org, 
+ *                      Michael Smith <msmith@xiph.org>,
+ *                      oddsock <oddsock@xiph.org>,
+ *                      Karl Heyes <karl@xiph.org>
+ *                      and others (see AUTHORS for details).
+ */
+
 /* -*- c-basic-offset: 4; indent-tabs-mode: nil; -*- */
 #ifdef HAVE_CONFIG_H
 #include <config.h>
@@ -36,15 +48,15 @@
 #include "logging.h"
 #include "xslt.h"
 #include "fserve.h"
-#ifdef USE_YP
-#include "geturl.h"
 #include "yp.h"
-#endif
 
 #include <libxml/xmlmemory.h>
 
 #ifdef _WIN32
+/* For getpid() */
+#include <process.h>
 #define snprintf _snprintf
+#define getpid _getpid
 #endif
 
 #undef CATMODULE
@@ -61,8 +73,13 @@ static void _fatal_error(char *perr)
 
 static void _print_usage()
 {
-    printf("Usage:\n");
-    printf("\ticecast -c <file>\t\tSpecify configuration file\n");
+    printf(ICECAST_VERSION_STRING "\n\n");
+    printf("usage: icecast [-h -b -v] -c <file>\n");
+    printf("options:\n");
+    printf("\t-c <file>\tSpecify configuration file\n");
+    printf("\t-h\t\tDisplay usage\n");
+    printf("\t-v\t\tDisplay version info\n");
+    printf("\t-b\t\tRun icecast in the background\n");
     printf("\n");
 }
 
@@ -70,6 +87,7 @@ static void _stop_logging(void)
 {
     log_close(errorlog);
     log_close(accesslog);
+    log_close(playlistlog);
 }
 
 static void _initialize_subsystems(void)
@@ -83,21 +101,16 @@ static void _initialize_subsystems(void)
     global_initialize();
     refbuf_initialize();
     xslt_initialize();
-#ifdef USE_YP
-    curl_initialize();
-#endif
 }
 
 static void _shutdown_subsystems(void)
 {
-#ifdef USE_YP
-    curl_shutdown();
-#endif
     fserve_shutdown();
     xslt_shutdown();
     refbuf_shutdown();
-    stats_shutdown();
     slave_shutdown();
+    yp_shutdown();
+    stats_shutdown();
 
     /* Now that these are done, we can stop the loggers. */
     _stop_logging();
@@ -113,28 +126,42 @@ static void _shutdown_subsystems(void)
     xmlCleanupParser();
 }
 
-static int _parse_config_file(int argc, char **argv, char *filename, int size)
+static int _parse_config_opts(int argc, char **argv, char *filename, int size)
 {
     int i = 1;
-    int    processID = 0;
+    int config_ok = 0;
 
-    if (argc < 3) return -1;
+
+    if (argc < 2) return -1;
 
     while (i < argc) {
         if (strcmp(argv[i], "-b") == 0) {
 #ifndef WIN32
-                fprintf(stdout, "Starting icecast2\nDetaching from the console\n");
-                if ((processID = (int)fork()) > 0) {
-                        /* exit the parent */
-                        _exit(0);
-                }
+            pid_t pid;
+            fprintf(stdout, "Starting icecast2\nDetaching from the console\n");
+
+            pid = fork();
+
+            if (pid > 0) {
+                /* exit the parent */
+                exit(0);
+            }
+            else if(pid < 0) {
+                fprintf(stderr, "FATAL: Unable to fork child!");
+                exit(1);
+            }
 #endif
         }
+        if (strcmp(argv[i], "-v") == 0) {
+            fprintf(stdout, "%s\n", ICECAST_VERSION_STRING);
+            exit(0);
+        }
+
         if (strcmp(argv[i], "-c") == 0) {
             if (i + 1 < argc) {
                 strncpy(filename, argv[i + 1], size-1);
                 filename[size-1] = 0;
-                return 1;
+                config_ok = 1;
             } else {
                 return -1;
             }
@@ -142,41 +169,79 @@ static int _parse_config_file(int argc, char **argv, char *filename, int size)
         i++;
     }
 
-    return -1;
+    if(config_ok)
+        return 1;
+    else
+        return -1;
 }
 
 static int _start_logging(void)
 {
     char fn_error[FILENAME_MAX];
     char fn_access[FILENAME_MAX];
-    char pbuf[1024];
+    char fn_playlist[FILENAME_MAX];
+    char buf[1024];
+    int log_to_stderr;
 
     ice_config_t *config = config_get_config_unlocked();
 
     if(strcmp(config->error_log, "-")) {
         snprintf(fn_error, FILENAME_MAX, "%s%s%s", config->log_dir, PATH_SEPARATOR, config->error_log);
         errorlog = log_open(fn_error);
+        log_to_stderr = 0;
     } else {
         errorlog = log_open_file(stderr);
+        log_to_stderr = 1;
     }
+
+    if (errorlog < 0) {
+        buf[sizeof(buf)-1] = 0;
+        snprintf(buf, sizeof(buf)-1, 
+                "FATAL: could not open error logging (%s): %s",
+                log_to_stderr?"standard error":fn_error,
+                strerror(errno));
+        _fatal_error(buf);
+    }
+    log_set_level(errorlog, config->loglevel);
+
     if(strcmp(config->access_log, "-")) {
         snprintf(fn_access, FILENAME_MAX, "%s%s%s", config->log_dir, PATH_SEPARATOR, config->access_log);
         accesslog = log_open(fn_access);
+        log_to_stderr = 0;
     } else {
         accesslog = log_open_file(stderr);
+        log_to_stderr = 1;
+    }
+
+    if (accesslog < 0) {
+        buf[sizeof(buf)-1] = 0;
+        snprintf(buf, sizeof(buf)-1, 
+                "FATAL: could not open access logging (%s): %s",
+                log_to_stderr?"standard error":fn_access,
+                strerror(errno));
+        _fatal_error(buf);
+    }
+
+    if(config->playlist_log) {
+        snprintf(fn_playlist, FILENAME_MAX, "%s%s%s", config->log_dir, PATH_SEPARATOR, config->playlist_log);
+        playlistlog = log_open(fn_playlist);
+        if (playlistlog < 0) {
+            buf[sizeof(buf)-1] = 0;
+            snprintf(buf, sizeof(buf)-1, 
+                "FATAL: could not open playlist logging (%s): %s",
+                log_to_stderr?"standard error":fn_playlist,
+                strerror(errno));
+            _fatal_error(buf);
+        }
+        log_to_stderr = 0;
+    } else {
+        playlistlog = -1;
     }
     
     log_set_level(errorlog, config->loglevel);
     log_set_level(accesslog, 4);
+    log_set_level(playlistlog, 4);
 
-    if (errorlog < 0) {
-        _fatal_error("FATAL: could not open error logging");
-    }
-    if (accesslog < 0) {
-        memset(pbuf, '\000', sizeof(pbuf));
-        snprintf(pbuf, sizeof(pbuf)-1, "FATAL: could not open access logging");
-        _fatal_error(pbuf);
-    }
     if (errorlog >= 0 && accesslog >= 0) return 1;
     
     return 0;
@@ -318,14 +383,14 @@ static void _ch_root_uid_setup(void)
 
        if(gid != -1) {
            if(!setgid(gid))
-               fprintf(stdout, "Changed groupid to %i.\n", gid);
+               fprintf(stdout, "Changed groupid to %i.\n", (int)gid);
            else
                fprintf(stdout, "Error changing groupid: %s.\n", strerror(errno));
        }
 
        if(uid != -1) {
            if(!setuid(uid))
-               fprintf(stdout, "Changed userid to %i.\n", uid);
+               fprintf(stdout, "Changed userid to %i.\n", (int)uid);
            else
                fprintf(stdout, "Error changing userid: %s.\n", strerror(errno));
        }
@@ -336,13 +401,15 @@ static void _ch_root_uid_setup(void)
 int main(int argc, char **argv)
 {
     int res, ret;
+    ice_config_t *config;
+    char *pidfile = NULL;
     char filename[512];
     char pbuf[1024];
 
     /* parse the '-c icecast.xml' option
     ** only, so that we can read a configfile
     */
-    res = _parse_config_file(argc, argv, filename, 512);
+    res = _parse_config_opts(argc, argv, filename, 512);
     if (res == 1) {
         /* startup all the modules */
         _initialize_subsystems();
@@ -358,7 +425,7 @@ int main(int argc, char **argv)
             _fatal_error(pbuf);
             switch (ret) {
             case CONFIG_EINSANE:
-                _fatal_error("filename was null of blank");
+                _fatal_error("filename was null or blank");
                 break;
             case CONFIG_ENOROOT:
                 _fatal_error("no root element found");
@@ -398,7 +465,7 @@ int main(int argc, char **argv)
      * assume */
     if(!getuid()) /* Running as root! Don't allow this */
     {
-        fprintf(stderr, "WARNING: You should not run icecast2 as root\n");
+        fprintf(stderr, "ERROR: You should not run icecast2 as root\n");
         fprintf(stderr, "Use the changeowner directive in the config file\n");
         _shutdown_subsystems();
         return 1;
@@ -414,20 +481,31 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    /* Do this after logging init */
-    slave_initialize();
+    config = config_get_config_unlocked();
+    /* recreate the pid file */
+    if (config->pidfile)
+    {
+        FILE *f;
+        pidfile = strdup (config->pidfile);
+        if (pidfile && (f = fopen (config->pidfile, "w")) != NULL)
+        {
+            fprintf (f, "%d\n", (int)getpid());
+            fclose (f);
+        }
+    }
 
-    INFO0("icecast server started");
+    INFO0 (ICECAST_VERSION_STRING " server started");
 
     /* REM 3D Graphics */
 
     /* let her rip */
     global.running = ICE_RUNNING;
 
-#ifdef USE_YP
     /* Startup yp thread */
     yp_initialize();
-#endif
+
+    /* Do this after logging init */
+    slave_initialize();
 
     _server_proc();
 
@@ -435,20 +513,13 @@ int main(int argc, char **argv)
 
     _shutdown_subsystems();
 
+    if (pidfile)
+    {
+        remove (pidfile);
+        free (pidfile);
+    }
+
     return 0;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 

@@ -1,10 +1,42 @@
-Icecast2 alpha 1.
+icecast 2.x - README
+---------------------------------------------------------------------
 
-This is an alpha release. Not all functionality is fully implemented, though
-we believe it to be very stable for all the currently available features.
+Icecast is a streaming media server which currently supports Ogg 
+Vorbis and MP3 audio streams. It can be used to create an Internet 
+radio station or a privately running jukebox and many things in 
+between. It is very versatile in that new formats can be added 
+relatively easily and supports open standards for commuincation and 
+interaction.
 
-It is known to build on linux and win32, and should be easily ported to other
-unix platforms (we expect this will require some autoconf work, though).
+Icecast is distributed under the GNU GPL, version 2. A copy of this
+license is included with this software in the COPYING file.
+
+Prerequisites
+---------------------------------------------------------------------
+icecast requires the following packages :
+
+* libxml2 - http://xmlsoft.org/downloads.html
+* libxslt - http://xmlsoft.org/XSLT/downloads.html
+* curl - http://curl.haxx.se/download.html (>= version 7.10 required)
+  NOTE: icecast may be compiled without curl, however this will
+        disable all Directory server interaction (YP).
+* ogg/vorbis - http://www.vorbis.com/files (>= version 1.0 required)
+
+A Note About RPMS
+---------------------------------------------------------------------
+This section only applies to you if your operating system uses RPMS.
+
+In order to build icecast, you will need to install the "devel" RPM
+packages for each of the prerequisite packages in addition to the
+normal RPMS for each package.
+
+please check the websites for each of the prerequisite packages for
+appropriate download links for RPMS.
+
+
+Build/Install
+---------------------------------------------------------------------
+To build icecast on a Unix platform, perform the following :
 
 Run
    ./configure
@@ -13,10 +45,12 @@ Run
 
 To build and install this release.
 
-Documentation is mostly missing at this point. The example config file should
-explain most of the features available (but note that the directory services
-are not yet available). 
+A sample config file will be placed in /usr/local/etc (on UNIX) or in 
+the current working directory (on Win32) and is called icecast.xml
+
+Documentation for icecast is available in the doc directory, by 
+viewing doc/index.html in a browser.
 
 Please email us at icecast@xiph.org or icecast-dev@xiph.org, or come and see
-us at irc.xiph.org, channel #icecast, if you have any troubles.
+us at irc.freenode.net, channel #icecast, if you have any troubles.
 

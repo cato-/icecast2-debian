@@ -1,3 +1,10 @@
+/* 
+** Logging framework.
+**
+** This program is distributed under the GNU General Public License, version 2.
+** A copy of this license is included with this source.
+*/
+
 #ifdef HAVE_CONFIG_H
 #include <config.h>
 #endif
@@ -242,7 +249,11 @@ void log_close(int log_id)
 
     _lock_logger();
 
-    if (loglist[log_id].in_use == 0) return;
+    if (loglist[log_id].in_use == 0)
+    {
+        _unlock_logger();
+        return;
+    }
 
     loglist[log_id].in_use = 0;
     loglist[log_id].level = 2;

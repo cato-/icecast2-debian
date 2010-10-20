@@ -5,7 +5,6 @@
 #include "Icecast2win.h"
 #include "Icecast2winDlg.h"
 #include <process.h>
-#include "ResizableDialog.h"
 
 #include <libxml/xmlmemory.h>
 #include <libxml/parser.h>
@@ -25,7 +24,6 @@ extern "C" {
 #include "stats.h"
 }
 
-
 #include <afxinet.h>
 
 #ifdef _DEBUG
@@ -34,13 +32,12 @@ extern "C" {
 static char THIS_FILE[] = __FILE__;
 #endif
 
-#define ICECAST_VERSION "2.0alpha1"
+#define ICECAST_VERSION "2.x"
 CEdit	*g_accessControl;
 CEdit	*g_errorControl;
 CIcecast2winDlg	*g_mainDialog;
 bool	g_tailAccess = false;
 bool	g_tailError = false;
-void CollectStats(stats_event_t *event);
 CString gConfigurationSave;
 
 char	gTitleSource[1024] = "";
@@ -166,7 +163,7 @@ void RemoveFromAdditionalGlobalStats(CString source, CString name) {
 /////////////////////////////////////////////////////////////////////////////
 // CAboutDlg dialog used for App About
 
-class CAboutDlg : public CResizableDialog
+class CAboutDlg : public CDialog
 {
 public:
 	CAboutDlg();
@@ -189,7 +186,7 @@ protected:
 	DECLARE_MESSAGE_MAP()
 };
 
-CAboutDlg::CAboutDlg() : CResizableDialog(CAboutDlg::IDD)
+CAboutDlg::CAboutDlg() : CDialog(CAboutDlg::IDD)
 {
 	//{{AFX_DATA_INIT(CAboutDlg)
 	//}}AFX_DATA_INIT
@@ -197,12 +194,12 @@ CAboutDlg::CAboutDlg() : CResizableDialog(CAboutDlg::IDD)
 
 void CAboutDlg::DoDataExchange(CDataExchange* pDX)
 {
-	CResizableDialog::DoDataExchange(pDX);
+	CDialog::DoDataExchange(pDX);
 	//{{AFX_DATA_MAP(CAboutDlg)
 	//}}AFX_DATA_MAP
 }
 
-BEGIN_MESSAGE_MAP(CAboutDlg, CResizableDialog)
+BEGIN_MESSAGE_MAP(CAboutDlg, CDialog)
 	//{{AFX_MSG_MAP(CAboutDlg)
 		// No message handlers
 	//}}AFX_MSG_MAP
@@ -213,7 +210,7 @@ END_MESSAGE_MAP()
 // CIcecast2winDlg dialog
 
 CIcecast2winDlg::CIcecast2winDlg(CWnd* pParent /*=NULL*/)
-	: CResizableDialog(CIcecast2winDlg::IDD, pParent)
+	: CDialog(CIcecast2winDlg::IDD, pParent)
 {
 	//{{AFX_DATA_INIT(CIcecast2winDlg)
 	m_AccessEdit = _T("");
@@ -232,7 +229,7 @@ CIcecast2winDlg::CIcecast2winDlg(CWnd* pParent /*=NULL*/)
 
 void CIcecast2winDlg::DoDataExchange(CDataExchange* pDX)
 {
-	CResizableDialog::DoDataExchange(pDX);
+	CDialog::DoDataExchange(pDX);
 	//{{AFX_DATA_MAP(CIcecast2winDlg)
 	DDX_Control(pDX, IDC_STATIC_SS, m_SS);
 	DDX_Control(pDX, IDC_SERVERSTATUS, m_ServerStatusBitmap);
@@ -242,7 +239,7 @@ void CIcecast2winDlg::DoDataExchange(CDataExchange* pDX)
 	//}}AFX_DATA_MAP
 }
 
-BEGIN_MESSAGE_MAP(CIcecast2winDlg, CResizableDialog)
+BEGIN_MESSAGE_MAP(CIcecast2winDlg, CDialog)
 	//{{AFX_MSG_MAP(CIcecast2winDlg)
 	ON_WM_SYSCOMMAND()
 	ON_WM_PAINT()
@@ -269,9 +266,10 @@ END_MESSAGE_MAP()
 
 #include "colors.h"
 
+
 BOOL CIcecast2winDlg::OnInitDialog()
 {
-	CResizableDialog::OnInitDialog();
+	CDialog::OnInitDialog();
 
 	// Add "About..." menu item to system menu.
 
@@ -291,7 +289,6 @@ BOOL CIcecast2winDlg::OnInitDialog()
 		}
 	}
 
-	
 	g_mainDialog = this;
 
 	// Set the icon for this dialog.  The framework does this automatically
@@ -328,10 +325,10 @@ BOOL CIcecast2winDlg::OnInitDialog()
 
 	LoadConfig();
 
-	AddAnchor(IDC_MAINTAB, TOP_LEFT, BOTTOM_RIGHT);
-	AddAnchor(IDC_STATICBLACK, TOP_LEFT, TOP_RIGHT);
+//	AddAnchor(IDC_MAINTAB, TOP_LEFT, BOTTOM_RIGHT);
+//	AddAnchor(IDC_STATICBLACK, TOP_LEFT, TOP_RIGHT);
 
-	EnableSaveRestore("icecast2win", "positions");
+//	EnableSaveRestore("icecast2win", "positions");
 
 	m_pTray = NULL;
 
@@ -355,7 +352,7 @@ void CIcecast2winDlg::OnSysCommand(UINT nID, LPARAM lParam)
 	}
 	else
 	{
-		CResizableDialog::OnSysCommand(nID, lParam);
+		CDialog::OnSysCommand(nID, lParam);
 	}
 }
 
@@ -384,7 +381,7 @@ void CIcecast2winDlg::OnPaint()
 	}
 	else
 	{
-		CResizableDialog::OnPaint();
+		CDialog::OnPaint();
 	}
 }
 
@@ -465,78 +462,64 @@ void CIcecast2winDlg::DisableControl(UINT control)
 }
 
 
-
-void CollectStats(stats_event_t *event)
+void AddUpdateStatistic(int sourceIndex, char *name, char *value)
 {
-	Element tempElement;
-	char	tempSource[1024] = "";
-
-	tempElement.name = "";
-	tempElement.value = "";
-
-	if (event->name != NULL) {
-		tempElement.name = event->name;
-	}
-	if (event->value != NULL) {
-		tempElement.value = event->value;
-	}
-	if (event->source != NULL) {
-		strcpy(tempSource, event->source);
-		
-	}
-
-	int foundit = 0;
-	for (int i=0;i<numMainStats;i++) {
-		if (!strcmp(gStats[i].source, tempSource)) {
-			int foundit2 = 0;
-			gStats[i].populated = 1;
-			for (int j=0;j<gStats[i].numStats;j++) {
-				if (gStats[i].stats[j].name == tempElement.name) {
-					gStats[i].stats[j].value = tempElement.value;
-
-					foundit2 = 1;
-				}
-			}
-			if (!foundit2) {
-				gStats[i].stats[j].name = tempElement.name;
-				gStats[i].stats[j].value = tempElement.value;
-				gStats[i].numStats++;
-			}
-			foundit = 1;
+	for (int j=0;j<gStats[sourceIndex].numStats;j++) {
+		if (gStats[sourceIndex].stats[j].name == name) {
+			gStats[sourceIndex].stats[j].value = value;
+			return;
 		}
 	}
-	if (!foundit) {
-
-		if (strlen(tempSource) == 0) {
-			strcpy(tempSource, "Global Stat");
-		}
-		gStats[numMainStats].source = tempSource;
-		gStats[numMainStats].stats[0].name = tempElement.name;
-		gStats[numMainStats].stats[0].value = tempElement.value;
-		gStats[numMainStats].populated = 1;
-
-		gStats[numMainStats].numStats++;
-		numMainStats++;
-	}
-	// Process source disconnects
-	if (event->name != NULL) {
-		if (!strcmp(event->name, "listeners")) {
-			if (event->value == NULL) {
-				// source has disconnected...
-				for (int i=0;i<numMainStats;i++) {
-					if (!strcmp(gStats[i].source, tempSource)) {
-						gStats[i].populated = 0;
-						g_mainDialog->statsTab.m_SourceListCtrl.DeleteAllItems();
-						g_mainDialog->statsTab.m_StatsListCtrl.DeleteAllItems();
-						break;
-					}
-				}
-			}
-		}
-	}
-	g_mainDialog->UpdateStatsLists();
+	int numStats = gStats[sourceIndex].numStats;
+	/* If we get here, we haven't found the stat, so add it */
+	gStats[sourceIndex].stats[numStats].name = name;
+	gStats[sourceIndex].stats[numStats].value = value;
+	gStats[sourceIndex].numStats++;
 
 }
+int GetSourceIndex(char *sourceName)
+{
+	if (sourceName == NULL) {
+		return 0;
+	}
+	for (int i=1;i<numMainStats+1;i++) {
+		if (!strcmp(gStats[i].source, sourceName)) {
+			return i;
+		}
+	}
+	/* This means we haven't seen the source, so lets add it */
+	numMainStats++;
+	gStats[numMainStats].source = sourceName;
+	gStats[numMainStats].populated = 1;
+	gStats[numMainStats].numStats = 0;
+	return numMainStats;
+
+}
+void UpdateSourceData(xmlDocPtr doc, xmlNodePtr cur, char *sourceName) {
+	xmlNodePtr children;
+	char	*ls_xmlContentPtr = NULL;
+	int sourceIndex = GetSourceIndex(sourceName);
+	int listenerInd = 0;
+
+	children = cur->xmlChildrenNode;
+	while (children != NULL) {
+		if (!strcmp((char *)children->name, "listeners")) {
+			listenerInd = 1;
+		}
+		ls_xmlContentPtr = (char *)xmlNodeListGetString(doc, children->xmlChildrenNode, 1);
+		AddUpdateStatistic(sourceIndex, (char *)children->name, ls_xmlContentPtr);
+		xmlFree(ls_xmlContentPtr);
+		children = children->next;
+	}
+	if (!listenerInd) {
+		/* If no listeners, then the source has been disconnected */
+		gStats[sourceIndex].populated = 0;
+		gStats[sourceIndex].numStats = 0;
+		g_mainDialog->statsTab.m_SourceListCtrl.DeleteAllItems();
+		g_mainDialog->statsTab.m_StatsListCtrl.DeleteAllItems();
+	}
+}
+
 bool g_collectingStats = false;
 
 void StartStats(void *dummy)
@@ -550,9 +533,48 @@ void StartStats(void *dummy)
 				gStats[j].numStats = 0;
 			}
 			numMainStats = 0;
-			stats_callback(CollectStats);
+
+			xmlDocPtr doc;
+
+			stats_get_xml(&doc, 0);
+			xmlNodePtr cur;
+		    cur = xmlDocGetRootElement(doc); 
+
+		    if (cur == NULL) {
+				MessageBox(NULL, "empty XML document", "Error", MB_OK);
+				xmlFreeDoc(doc);
+				return;
+			}
+
+			cur = cur->xmlChildrenNode;
+			char* ls_xmlContentPtr2 = NULL;
+
+		    while (cur != NULL) {
+				if ((!xmlStrcmp(cur->name, (const xmlChar *)"source"))) {
+					ls_xmlContentPtr2 = (char *)xmlGetProp(cur, (unsigned char *)"mount");
+					UpdateSourceData(doc, cur, ls_xmlContentPtr2);
+				}
+				else {
+					/* A Global stat */
+					ls_xmlContentPtr2 = (char *)xmlNodeListGetString(doc, cur->xmlChildrenNode, 1);
+					AddUpdateStatistic(0, (char *)cur->name, ls_xmlContentPtr2);
+				}
+				if (ls_xmlContentPtr2) {
+					xmlFree(ls_xmlContentPtr2);
+				}
+
+				cur = cur->next;
+			}
+			xmlFreeDoc(doc);
+			xmlCleanupParser();
+			g_mainDialog->UpdateStatsLists();
+			Sleep(5000);
 		}
 		if (global.running != ICE_RUNNING) {
+			numMainStats = 0;
+			g_mainDialog->statusTab.m_GlobalStatList.DeleteAllItems();
+			g_mainDialog->statsTab.m_SourceListCtrl.DeleteAllItems();
+			g_mainDialog->statsTab.m_StatsListCtrl.DeleteAllItems();
 			_endthread();
 		}
 	}
@@ -611,7 +633,7 @@ void CIcecast2winDlg::OnTimer(UINT nIDEvent)
 		}
 	}
 	
-	CResizableDialog::OnTimer(nIDEvent);
+	CDialog::OnTimer(nIDEvent);
 }
 
 char	g_configFile[1024] = "";
@@ -655,7 +677,7 @@ void CIcecast2winDlg::OnFileStartserver()
 		LoadConfig();
 		SetTimer(0, 500, NULL);
 		_beginthread(StartServer, 0, (void *)(LPCSTR)myApp->m_configFile);
-		_beginthread(StartStats, 0, (void *)CollectStats);
+		_beginthread(StartStats, 0, (void *)NULL);
 	}
 }
 
@@ -694,7 +716,7 @@ void CIcecast2winDlg::OnStart()
 	else {
 		SetTimer(0, 500, NULL);
 		_beginthread(StartServer, 0, (void *)(LPCSTR)myApp->m_configFile);
-		_beginthread(StartStats, 0, (void *)CollectStats);
+		_beginthread(StartStats, 0, (void *)NULL);
 	}
 	
 }
@@ -704,7 +726,57 @@ void CIcecast2winDlg::UpdateStatsLists()
 	char	item[1024] = "";
 	int l = 0;
 
-	for (int i=0;i<numMainStats;i++) {
+	// Global Stats are index of 0
+	for (int k=0;k < gStats[0].numStats;k++) {
+		int inthere = 0;
+		for (l=0;l < statusTab.m_GlobalStatList.GetItemCount();l++) {
+
+			statusTab.m_GlobalStatList.GetItemText(l, 1, item, sizeof(item));
+			if (!strcmp(gStats[0].stats[k].name, item)) {
+				inthere = 1;
+				break;
+			}
+		}
+		if (!inthere) {
+			LVITEM	lvi;
+
+			lvi.mask =  LVIF_IMAGE | LVIF_TEXT;
+			lvi.iItem = statsTab.m_SourceListCtrl.GetItemCount();
+			lvi.iSubItem = 0;
+			//lvi.pszText = (LPTSTR)(LPCTSTR)gStats[0].source;
+			lvi.pszText = "Global Stat";
+			statusTab.m_GlobalStatList.InsertItem(&lvi);
+			lvi.iSubItem = 1;
+			lvi.pszText = (LPTSTR)(LPCTSTR)gStats[0].stats[k].name;
+			statusTab.m_GlobalStatList.SetItem(&lvi);
+			lvi.iSubItem = 2;
+			lvi.pszText = (LPTSTR)(LPCTSTR)gStats[0].stats[k].value;
+			statusTab.m_GlobalStatList.SetItem(&lvi);
+			if ((!strcmp(gTitleSource, gStats[0].source)) && 
+				(!strcmp(gTitleName, gStats[0].stats[k].name))) {
+				gStats[0].stats[k].titleFlag = 1;
+			}
+
+		}
+		else {
+			LVITEM	lvi;
+
+			lvi.mask =  LVIF_IMAGE | LVIF_TEXT;
+			lvi.iItem = l;
+			lvi.iSubItem = 2;
+			lvi.pszText = (LPTSTR)(LPCTSTR)gStats[0].stats[k].value;
+			statusTab.m_GlobalStatList.SetItem(&lvi);
+		}
+		if (gStats[0].stats[k].titleFlag) {
+			CString	windowTitle = CString("Global Stat") + " - " + gStats[0].stats[k].name + " - " + gStats[0].stats[k].value;
+			SetWindowText(windowTitle);
+			if (m_pTray) {
+				m_pTray->SetTIP((LPSTR)(LPCSTR)windowTitle);
+			}
+		}
+	}
+
+	for (int i=1;i<numMainStats+1;i++) {
 		int inthere = 0;
 		int k = 0;
 		if (gStats[i].populated) {
@@ -832,55 +904,6 @@ void CIcecast2winDlg::UpdateStatsLists()
 				}
 			}
 			else {
-				// If Global Stat
-				for (k=0;k < gStats[i].numStats;k++) {
-					inthere = 0;
-					for (l=0;l < statusTab.m_GlobalStatList.GetItemCount();l++) {
-
-						statusTab.m_GlobalStatList.GetItemText(l, 1, item, sizeof(item));
-						if (!strcmp(gStats[i].stats[k].name, item)) {
-							inthere = 1;
-							break;
-						}
-					}
-					if (!inthere) {
-						LVITEM	lvi;
-
-						lvi.mask =  LVIF_IMAGE | LVIF_TEXT;
-						lvi.iItem = statsTab.m_SourceListCtrl.GetItemCount();
-						lvi.iSubItem = 0;
-						lvi.pszText = (LPTSTR)(LPCTSTR)gStats[i].source;
-						statusTab.m_GlobalStatList.InsertItem(&lvi);
-						lvi.iSubItem = 1;
-						lvi.pszText = (LPTSTR)(LPCTSTR)gStats[i].stats[k].name;
-						statusTab.m_GlobalStatList.SetItem(&lvi);
-						lvi.iSubItem = 2;
-						lvi.pszText = (LPTSTR)(LPCTSTR)gStats[i].stats[k].value;
-						statusTab.m_GlobalStatList.SetItem(&lvi);
-						if ((!strcmp(gTitleSource, gStats[i].source)) && 
-							(!strcmp(gTitleName, gStats[i].stats[k].name))) {
-							gStats[i].stats[k].titleFlag = 1;
-						}
-
-					}
-					else {
-						LVITEM	lvi;
-
-						lvi.mask =  LVIF_IMAGE | LVIF_TEXT;
-						lvi.iItem = l;
-						lvi.iSubItem = 2;
-						lvi.pszText = (LPTSTR)(LPCTSTR)gStats[i].stats[k].value;
-						statusTab.m_GlobalStatList.SetItem(&lvi);
-					}
-					if (gStats[i].stats[k].titleFlag) {
-						CString	windowTitle = gStats[i].source + " - " + gStats[i].stats[k].name + " - " + gStats[i].stats[k].value;
-						SetWindowText(windowTitle);
-						if (m_pTray) {
-							m_pTray->SetTIP((LPSTR)(LPCSTR)windowTitle);
-						}
-
-					}
-				}
 			}
 		}
 	}
@@ -958,7 +981,7 @@ void CIcecast2winDlg::config_read()
 	char	buf[1024] = "";
 	CString	tempString;
 
-	m_colSource0Width = GetPrivateProfileInt(gAppName, "col0SourceWidth", 150, gConfigFile);
+	m_colSource0Width = GetPrivateProfileInt(gAppName, "col0SourceWidth", 163, gConfigFile);
 	m_colStats0Width = GetPrivateProfileInt(gAppName, "col0StatsWidth", 100, gConfigFile);
 	m_colStats1Width = GetPrivateProfileInt(gAppName, "col1StatsWidth", 150, gConfigFile);
 	m_colGStats0Width = GetPrivateProfileInt(gAppName, "col0GStatsWidth", 150, gConfigFile);
@@ -1012,12 +1035,12 @@ void CIcecast2winDlg::OnClose()
 {
 	// TODO: Add your message handler code here and/or call default
 	config_write();
-	CResizableDialog::OnClose();
+	CDialog::OnClose();
 }
 
 void CIcecast2winDlg::OnSize(UINT nType, int cx, int cy) 
 {
-	CResizableDialog::OnSize(nType, cx, cy);
+	CDialog::OnSize(nType, cx, cy);
 	
 	int border1 = 0;
 	int border2 = 78;
@@ -1025,8 +1048,20 @@ void CIcecast2winDlg::OnSize(UINT nType, int cx, int cy)
 	if (m_MainTab.m_hWnd) {
 		CRect rect;
 		GetClientRect (&rect);
-		m_MainTab.ResizeDialog(0, rect.Width()-border1, rect.Height()-border2);
-		m_MainTab.ResizeDialog(1, rect.Width()-border1, rect.Height()-border2);
+		int x = rect.Width()-border1;
+		int y = rect.Width()-border2;
+
+		statusTab.SetWindowPos(NULL, 4, 22, cx, cy, SWP_NOZORDER);
+		statsTab.SetWindowPos(NULL, 4, 22, cx, cy, SWP_NOZORDER);
+		statusTab.m_GlobalStatList.SetWindowPos(NULL, 14, 55, cx-40, cy-180, SWP_NOZORDER);
+		statsTab.m_StatsListCtrl.SetWindowPos(NULL, 213, 55, cx-243, cy-180, SWP_NOZORDER);
+		statsTab.m_SourceListCtrl.SetWindowPos(NULL, 14, 55, 166, cy-180, SWP_NOZORDER);
+//			CListCtrl	m_StatsListCtrl;
+//	CListCtrl	m_SourceListCtrl;
+		m_MainTab.SetWindowPos(NULL, 0, 80, cx, cy, SWP_NOZORDER);
+
+		//m_MainTab.ResizeDialog(0, rect.Width()-border1, rect.Height()-border2);
+		//m_MainTab.ResizeDialog(1, rect.Width()-border1, rect.Height()-border2);
 	}
 
 }
@@ -1097,7 +1132,7 @@ void CIcecast2winDlg::OnBlankRestore()
 
 void CIcecast2winDlg::OnDestroy() 
 {
-	CResizableDialog::OnDestroy();
+	CDialog::OnDestroy();
 	
 	if (m_pTray) {
 		delete m_pTray ;

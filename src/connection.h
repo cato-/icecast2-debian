@@ -1,13 +1,27 @@
+/* Icecast
+ *
+ * This program is distributed under the GNU General Public License, version 2.
+ * A copy of this license is included with this source.
+ *
+ * Copyright 2000-2004, Jack Moffitt <jack@xiph.org, 
+ *                      Michael Smith <msmith@xiph.org>,
+ *                      oddsock <oddsock@xiph.org>,
+ *                      Karl Heyes <karl@xiph.org>
+ *                      and others (see AUTHORS for details).
+ */
+
 #ifndef __CONNECTION_H__
 #define __CONNECTION_H__
 
 #include <sys/types.h>
+#include <time.h>
 #include "compat.h"
 #include "httpp/httpp.h"
 #include "thread/thread.h"
 #include "net/sock.h"
 
 struct _client_tag;
+struct source_tag;
 
 typedef struct connection_tag
 {
@@ -15,6 +29,7 @@ typedef struct connection_tag
 
     time_t con_time;
     uint64_t sent_bytes;
+
 
     int sock;
     int serversock;
@@ -33,8 +48,7 @@ void connection_shutdown(void);
 void connection_accept_loop(void);
 void connection_close(connection_t *con);
 connection_t *create_connection(sock_t sock, sock_t serversock, char *ip);
-int connection_create_source(struct _client_tag *client, connection_t *con, 
-        http_parser_t *parser, char *mount);
+int connection_complete_source (struct source_tag *source);
 
 void connection_inject_event(int eventnum, void *event_data);
 

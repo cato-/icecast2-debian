@@ -66,15 +66,22 @@ EXEEXT = @EXEEXT@
 OBJEXT = @OBJEXT@
 PATH_SEPARATOR = @PATH_SEPARATOR@
 AMTAR = @AMTAR@
+AR = @AR@
 AS = @AS@
 AWK = @AWK@
 CC = @CC@
 CFLAGS = @CFLAGS@
 CURL_CONFIG = @CURL_CONFIG@
+CXX = @CXX@
+CXXCPP = @CXXCPP@
 DEBUG = @DEBUG@
 DEPDIR = @DEPDIR@
 DLLTOOL = @DLLTOOL@
 ECHO = @ECHO@
+EGREP = @EGREP@
+F77 = @F77@
+GCJ = @GCJ@
+GCJFLAGS = @GCJFLAGS@
 ICECAST_OPTIONAL = @ICECAST_OPTIONAL@
 INSTALL_STRIP_PROGRAM = @INSTALL_STRIP_PROGRAM@
 LIBS = @LIBS@
@@ -93,7 +100,11 @@ PTHREAD_CFLAGS = @PTHREAD_CFLAGS@
 PTHREAD_CPPFLAGS = @PTHREAD_CPPFLAGS@
 PTHREAD_LIBS = @PTHREAD_LIBS@
 RANLIB = @RANLIB@
+RC = @RC@
 STRIP = @STRIP@
+THEORA_CFLAGS = @THEORA_CFLAGS@
+THEORA_LDFLAGS = @THEORA_LDFLAGS@
+THEORA_LIBS = @THEORA_LIBS@
 VERSION = @VERSION@
 VORBISENC_LIBS = @VORBISENC_LIBS@
 VORBISFILE_LIBS = @VORBISFILE_LIBS@
@@ -102,6 +113,7 @@ VORBIS_LDFLAGS = @VORBIS_LDFLAGS@
 VORBIS_LIBS = @VORBIS_LIBS@
 XIPH_CFLAGS = @XIPH_CFLAGS@
 XIPH_CPPFLAGS = @XIPH_CPPFLAGS@
+XIPH_LDFLAGS = @XIPH_LDFLAGS@
 XIPH_LIBS = @XIPH_LIBS@
 XMLCONFIG = @XMLCONFIG@
 XSLTCONFIG = @XSLTCONFIG@
@@ -112,15 +124,16 @@ install_sh = @install_sh@
 AUTOMAKE_OPTIONS = 1.6 foreign dist-zip
 ACLOCAL_AMFLAGS = -I m4
 
-SUBDIRS = src conf doc web admin win32
+SUBDIRS = src conf debian doc web admin win32
 
-EXTRA_DIST = HACKING m4/acx_pthread.m4 m4/ogg.m4 m4/vorbis.m4 \
+EXTRA_DIST = HACKING m4/acx_pthread.m4 m4/ogg.m4 \
+    m4/theora.m4 m4/vorbis.m4 \
     m4/xiph_compiler.m4 m4/xiph_curl.m4 m4/xiph_net.m4 \
-    m4/xiph_types.m4 m4/xiph_xml2.m4
+    m4/xiph_types.m4 m4/xiph_xml2.m4 icecast.spec
 
 
 docdir = $(datadir)/doc/$(PACKAGE)
-doc_DATA = README AUTHORS COPYING NEWS TODO
+doc_DATA = README AUTHORS COPYING NEWS TODO ChangeLog
 subdir = .
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
 mkinstalldirs = $(SHELL) $(top_srcdir)/mkinstalldirs
@@ -134,10 +147,10 @@ RECURSIVE_TARGETS = info-recursive dvi-recursive install-info-recursive \
 	uninstall-info-recursive all-recursive install-data-recursive \
 	install-exec-recursive installdirs-recursive install-recursive \
 	uninstall-recursive check-recursive installcheck-recursive
-DIST_COMMON = README AUTHORS COPYING Makefile.am Makefile.in NEWS TODO \
-	aclocal.m4 compile config.guess config.h.in config.sub \
-	configure configure.in depcomp install-sh ltmain.sh missing \
-	mkinstalldirs
+DIST_COMMON = README AUTHORS COPYING ChangeLog Makefile.am Makefile.in \
+	NEWS TODO aclocal.m4 compile config.guess config.h.in \
+	config.sub configure configure.in depcomp install-sh ltmain.sh \
+	missing mkinstalldirs
 DIST_SUBDIRS = $(SUBDIRS)
 all: config.h
 	$(MAKE) $(AM_MAKEFLAGS) all-recursive
@@ -157,7 +170,7 @@ $(top_builddir)/config.status: $(srcdir)/configure $(CONFIG_STATUS_DEPENDENCIES)
 $(srcdir)/configure: @MAINTAINER_MODE_TRUE@ $(srcdir)/configure.in $(ACLOCAL_M4) $(CONFIGURE_DEPENDENCIES)
 	cd $(srcdir) && $(AUTOCONF)
 
-$(ACLOCAL_M4): @MAINTAINER_MODE_TRUE@ configure.in m4/ac_config_libconfig_in.m4 m4/acx_pthread.m4 m4/ogg.m4 m4/shout.m4 m4/vorbis.m4 m4/xiph_compiler.m4 m4/xiph_curl.m4 m4/xiph_net.m4 m4/xiph_path_python.m4 m4/xiph_types.m4 m4/xiph_xml2.m4
+$(ACLOCAL_M4): @MAINTAINER_MODE_TRUE@ configure.in m4/ac_config_libconfig_in.m4 m4/acx_pthread.m4 m4/ogg.m4 m4/ogg2.m4 m4/shout.m4 m4/speex.m4 m4/theora.m4 m4/vorbis.m4 m4/xiph_compiler.m4 m4/xiph_curl.m4 m4/xiph_net.m4 m4/xiph_path_python.m4 m4/xiph_types.m4 m4/xiph_xml2.m4
 	cd $(srcdir) && $(ACLOCAL) $(ACLOCAL_AMFLAGS)
 
 config.h: stamp-h1
@@ -503,6 +516,9 @@ debug:
 
 profile:
 	$(MAKE) all CFLAGS="@PROFILE@"
+
+static:
+	$(MAKE) all LDFLAGS="${LDFLAGS} -all-static"
 # Tell versions [3.59,3.63) of GNU make to not export all variables.
 # Otherwise a system limit (for SysV at least) may be exceeded.
 .NOEXPORT:

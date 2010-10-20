@@ -66,15 +66,22 @@ EXEEXT = @EXEEXT@
 OBJEXT = @OBJEXT@
 PATH_SEPARATOR = @PATH_SEPARATOR@
 AMTAR = @AMTAR@
+AR = @AR@
 AS = @AS@
 AWK = @AWK@
 CC = @CC@
 CFLAGS = @CFLAGS@
 CURL_CONFIG = @CURL_CONFIG@
+CXX = @CXX@
+CXXCPP = @CXXCPP@
 DEBUG = @DEBUG@
 DEPDIR = @DEPDIR@
 DLLTOOL = @DLLTOOL@
 ECHO = @ECHO@
+EGREP = @EGREP@
+F77 = @F77@
+GCJ = @GCJ@
+GCJFLAGS = @GCJFLAGS@
 ICECAST_OPTIONAL = @ICECAST_OPTIONAL@
 INSTALL_STRIP_PROGRAM = @INSTALL_STRIP_PROGRAM@
 LIBS = @LIBS@
@@ -93,7 +100,11 @@ PTHREAD_CFLAGS = @PTHREAD_CFLAGS@
 PTHREAD_CPPFLAGS = @PTHREAD_CPPFLAGS@
 PTHREAD_LIBS = @PTHREAD_LIBS@
 RANLIB = @RANLIB@
+RC = @RC@
 STRIP = @STRIP@
+THEORA_CFLAGS = @THEORA_CFLAGS@
+THEORA_LDFLAGS = @THEORA_LDFLAGS@
+THEORA_LIBS = @THEORA_LIBS@
 VERSION = @VERSION@
 VORBISENC_LIBS = @VORBISENC_LIBS@
 VORBISFILE_LIBS = @VORBISFILE_LIBS@
@@ -102,6 +113,7 @@ VORBIS_LDFLAGS = @VORBIS_LDFLAGS@
 VORBIS_LIBS = @VORBIS_LIBS@
 XIPH_CFLAGS = @XIPH_CFLAGS@
 XIPH_CPPFLAGS = @XIPH_CPPFLAGS@
+XIPH_LDFLAGS = @XIPH_LDFLAGS@
 XIPH_LIBS = @XIPH_LIBS@
 XMLCONFIG = @XMLCONFIG@
 XSLTCONFIG = @XSLTCONFIG@
@@ -111,11 +123,11 @@ install_sh = @install_sh@
 
 AUTOMAKE_OPTIONS = foreign
 
-EXTRA_DIST = icecast.xml.in
-DISTCLEANFILES = icecast.xml.dist
+EXTRA_DIST = icecast.xml.in icecast_minimal.xml.in icecast_shoutcast_compat.xml.in
+DISTCLEANFILES = icecast.xml.dist icecast_minimal.xml.dist icecast_shoutcast_compat.xml.dist
 
 docdir = $(datadir)/$(PACKAGE)/doc
-doc_DATA = icecast.xml.dist
+doc_DATA = icecast.xml.dist icecast_minimal.xml.dist icecast_shoutcast_compat.xml.dist
 
 edit = sed -e 's,@pkgdatadir\@,$(pkgdatadir),g' \
 	-e 's,@localstatedir\@,$(localstatedir),g' \
@@ -282,6 +294,12 @@ install-data-hook:
 
 icecast.xml.dist: $(srcdir)/icecast.xml.in
 	$(edit) $(srcdir)/icecast.xml.in > icecast.xml.dist
+
+icecast_minimal.xml.dist: $(srcdir)/icecast_minimal.xml.in
+	$(edit) $(srcdir)/icecast_minimal.xml.in > icecast_minimal.xml.dist
+
+icecast_shoutcast_compat.xml.dist: $(srcdir)/icecast_shoutcast_compat.xml.in
+	$(edit) $(srcdir)/icecast_shoutcast_compat.xml.in > icecast_shoutcast_compat.xml.dist
 
 debug:
 	$(MAKE) all CFLAGS="@DEBUG@"

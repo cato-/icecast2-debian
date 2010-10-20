@@ -1,12 +1,26 @@
+/* Icecast
+ *
+ * This program is distributed under the GNU General Public License, version 2.
+ * A copy of this license is included with this source.
+ *
+ * Copyright 2000-2004, Jack Moffitt <jack@xiph.org, 
+ *                      Michael Smith <msmith@xiph.org>,
+ *                      oddsock <oddsock@xiph.org>,
+ *                      Karl Heyes <karl@xiph.org>
+ *                      and others (see AUTHORS for details).
+ */
+
 #ifndef __LOGGING_H__
 #define __LOGGING_H__
 
+#include "cfgfile.h"
 #include "log/log.h"
 
 /* declare the global log descriptors */
 
 extern int errorlog;
 extern int accesslog;
+extern int playlistlog;
 
 /* these are all ERRORx and WARNx where _x_ is the number of parameters
 ** it takes.  it turns out most other copmilers don't have support for
@@ -16,7 +30,7 @@ extern int accesslog;
 */
 
 #ifdef _WIN32
-#define __FUNCTION__ __FILE__
+#define __FUNCTION__ strrchr (__FILE__, '\\') ? strrchr (__FILE__, '\\') + 1 : __FILE__
 #endif
 
 #define ERROR0(y) log_write(errorlog, 1, CATMODULE "/", __FUNCTION__, y)
@@ -75,7 +89,8 @@ extern int accesslog;
 #define LOGGING_FORMAT_CLF "%d/%b/%Y:%H:%M:%S %z"
 
 void logging_access(client_t *client);
-void restart_logging (void);
+void logging_playlist(char *mount, char *metadata, long listeners);
+void restart_logging (ice_config_t *config);
 
 #endif  /* __LOGGING_H__ */
 

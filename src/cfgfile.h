@@ -1,3 +1,15 @@
+/* Icecast
+ *
+ * This program is distributed under the GNU General Public License, version 2.
+ * A copy of this license is included with this source.
+ *
+ * Copyright 2000-2004, Jack Moffitt <jack@xiph.org, 
+ *                      Michael Smith <msmith@xiph.org>,
+ *                      oddsock <oddsock@xiph.org>,
+ *                      Karl Heyes <karl@xiph.org>
+ *                      and others (see AUTHORS for details).
+ */
+
 #ifndef __CFGFILE_H__
 #define __CFGFILE_H__
 
@@ -20,14 +32,11 @@ typedef struct ice_config_dir_tag
     struct ice_config_dir_tag *next;
 } ice_config_dir_t;
 
-typedef struct _relay_server {
-    char *server;
-    int port;
-    char *mount;
-    char *localmount;
-    int mp3metadata;
-    struct _relay_server *next;
-} relay_server;
+typedef struct _config_options {
+    char *name;
+    char *value;
+    struct _config_options *next;
+} config_options_t;
 
 typedef struct _mount_proxy {
     char *mountname; /* The mountpoint this proxy is used for */
@@ -39,7 +48,22 @@ typedef struct _mount_proxy {
                        to not dump. */
     int max_listeners; /* Max listeners for this mountpoint only. -1 to not 
                           limit here (i.e. only use the global limit) */
-    char *fallback_mount;
+    char *fallback_mount; /* Fallback mountname */
+
+    int fallback_override; /* When this source arrives, do we steal back
+                              clients from the fallback? */
+    int no_mount; /* Do we permit direct requests of this mountpoint? (or only
+                     indirect, through fallbacks) */
+    int burst_size; /* amount to send to a new client if possible, -1 take
+                     * from global setting */
+    unsigned int queue_size_limit;
+    int no_yp; /* Do we prevent YP on this mount */
+    int hidden; /* Do we list this on the xsl pages */
+    unsigned int source_timeout;  /* source timeout in seconds */
+
+    char *auth_type; /* Authentication type */
+    char *cluster_password;
+    config_options_t *auth_options; /* Options for this type */
     struct _mount_proxy *next;
 } mount_proxy;
 
@@ -54,6 +78,7 @@ typedef struct _aliases {
 typedef struct {
     int port;
     char *bind_address;
+    int shoutcast_compat;
 } listener_t;
 
 typedef struct ice_config_tag
@@ -65,17 +90,21 @@ typedef struct ice_config_tag
 
     int client_limit;
     int source_limit;
-    long queue_size_limit;
+    unsigned int queue_size_limit;
     int threadpool_size;
+    unsigned int burst_size;
     int client_timeout;
     int header_timeout;
     int source_timeout;
     int ice_login;
     int fileserve;
 
+    char *shoutcast_mount;
     char *source_password;
     char *admin_username;
     char *admin_password;
+    char *relay_username;
+    char *relay_password;
 
     int touch_interval;
     ice_config_dir_t *dir_list;
@@ -96,12 +125,14 @@ typedef struct ice_config_tag
 
     char *base_dir;
     char *log_dir;
+    char *pidfile;
     char *webroot_dir;
     char *adminroot_dir;
     aliases *aliases;
 
     char *access_log;
     char *error_log;
+    char *playlist_log;
     int loglevel;
 
     int chroot;
@@ -110,6 +141,7 @@ typedef struct ice_config_tag
     char *group;
     char *yp_url[MAX_YP_DIRECTORIES];
     int    yp_url_timeout[MAX_YP_DIRECTORIES];
+    int    yp_touch_interval[MAX_YP_DIRECTORIES];
     int num_yp_directories;
 } ice_config_t;
 

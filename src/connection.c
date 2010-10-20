@@ -1,3 +1,15 @@
+/* Icecast
+ *
+ * This program is distributed under the GNU General Public License, version 2.
+ * A copy of this license is included with this source.
+ *
+ * Copyright 2000-2004, Jack Moffitt <jack@xiph.org, 
+ *                      Michael Smith <msmith@xiph.org>,
+ *                      oddsock <oddsock@xiph.org>,
+ *                      Karl Heyes <karl@xiph.org>
+ *                      and others (see AUTHORS for details).
+ */
+
 /* -*- c-basic-offset: 4; indent-tabs-mode: nil; -*- */
 #ifdef HAVE_CONFIG_H
 #include <config.h>
@@ -49,8 +61,26 @@
 #include "format_mp3.h"
 #include "event.h"
 #include "admin.h"
+#include "auth.h"
 
 #define CATMODULE "connection"
+
+/* Two different major types of source authentication.
+   Shoutcast style is used only by the Shoutcast DSP
+   and is a crazy version of HTTP.  It looks like :
+     Source Client -> Connects to port + 1
+     Source Client -> sends encoder password (plaintext)\r\n
+     Icecast -> reads encoder password, if ok, sends OK2\r\n, else disconnects
+     Source Client -> reads OK2\r\n, then sends http-type request headers
+                      that contain the stream details (icy-name, etc..)
+     Icecast -> reads headers, stores them
+     Source Client -> starts sending MP3 data
+     Source Client -> periodically updates metadata via admin.cgi call
+
+   Icecast auth style uses HTTP and Basic Authorization.
+*/
+#define SHOUTCAST_SOURCE_AUTH 1
+#define ICECAST_SOURCE_AUTH 0
 
 typedef struct con_queue_tag {
     connection_t *con;
@@ -63,11 +93,10 @@ typedef struct _thread_queue_tag {
 } thread_queue_t;
 
 static mutex_t _connection_mutex;
-static unsigned long _current_id = 0;
+static volatile unsigned long _current_id = 0;
 static int _initialized = 0;
-static cond_t _pool_cond;
 
-static con_queue_t *_queue = NULL;
+volatile static con_queue_t *_queue = NULL;
 static mutex_t _queue_mutex;
 
 static thread_queue_t *_conhands = NULL;
@@ -82,8 +111,8 @@ void connection_initialize(void)
     
     thread_mutex_create(&_connection_mutex);
     thread_mutex_create(&_queue_mutex);
+    thread_mutex_create(&move_clients_mutex);
     thread_rwlock_create(&_source_shutdown_rwlock);
-    thread_cond_create(&_pool_cond);
     thread_cond_create(&global.shutdown_cond);
 
     _initialized = 1;
@@ -94,10 +123,10 @@ void connection_shutdown(void)
     if (!_initialized) return;
     
     thread_cond_destroy(&global.shutdown_cond);
-    thread_cond_destroy(&_pool_cond);
     thread_rwlock_destroy(&_source_shutdown_rwlock);
     thread_mutex_destroy(&_queue_mutex);
     thread_mutex_destroy(&_connection_mutex);
+    thread_mutex_destroy(&move_clients_mutex);
 
     _initialized = 0;
 }
@@ -249,15 +278,9 @@ static void _add_connection(connection_t *con)
     
     thread_mutex_lock(&_queue_mutex);
     node->con = con;
-    node->next = _queue;
+    node->next = (con_queue_t *)_queue;
     _queue = node;
     thread_mutex_unlock(&_queue_mutex);
-
-}
-
-static void _signal_pool(void)
-{
-    thread_cond_signal(&_pool_cond);
 }
 
 static void _push_thread(thread_queue_t **queue, thread_type *thread_id)
@@ -327,13 +350,12 @@ static void _destroy_pool(void)
 
     i = 0;
 
-    thread_cond_broadcast(&_pool_cond);
     id = _pop_thread(&_conhands);
     while (id != NULL) {
         thread_join(id);
-        _signal_pool();
         id = _pop_thread(&_conhands);
     }
+    INFO0("All connection threads down");
 }
 
 void connection_accept_loop(void)
@@ -357,7 +379,6 @@ void connection_accept_loop(void)
 
         if (con) {
             _add_connection(con);
-            _signal_pool();
         }
     }
 
@@ -377,9 +398,13 @@ static connection_t *_get_connection(void)
     con_queue_t *oldnode = NULL;
     connection_t *con = NULL;
 
+    /* common case, no new connections so don't bother taking locks */
+    if (_queue == NULL)
+        return NULL;
+
     thread_mutex_lock(&_queue_mutex);
     if (_queue) {
-        node = _queue;
+        node = (con_queue_t *)_queue;
         while (node->next) {
             oldnode = node;
             node = node->next;
@@ -408,84 +433,102 @@ void connection_inject_event(int eventnum, void *event_data) {
     con->event = event_data;
 
     _add_connection(con);
-    _signal_pool();
 }
 
-/* TODO: Make this return an appropriate error code so that we can use HTTP
- * codes where appropriate
+
+/* Called when activating a source. Verifies that the source count is not
+ * exceeded and applies any initial parameters.
  */
-int connection_create_source(client_t *client, connection_t *con, http_parser_t *parser, char *mount) {
-    source_t *source;
-    char *contenttype;
-    mount_proxy *mountproxy, *mountinfo = NULL;
-    int source_limit;
-    ice_config_t *config;
+int connection_complete_source (source_t *source)
+{
+    ice_config_t *config = config_get_config();
 
-    config = config_get_config();
-    source_limit = config->source_limit;
-    config_release_config();
+    global_lock ();
+    DEBUG1 ("sources count is %d", global.sources);
 
-    /* check to make sure this source wouldn't
-    ** be over the limit
-    */
-    global_lock();
-    if (global.sources >= source_limit) {
-        INFO1("Source (%s) logged in, but there are too many sources", mount);
+    if (global.sources < config->source_limit)
+    {
+        char *contenttype;
+        mount_proxy *mountproxy = config->mounts;
+        format_type_t format_type;
+
+        /* setup format handler */
+        contenttype = httpp_getvar (source->parser, "content-type");
+        if (contenttype != NULL)
+        {
+            format_type = format_get_type (contenttype);
+
+            if (format_type == FORMAT_ERROR)
+            {
+                global_unlock();
+                config_release_config();
+                if (source->client)
+                    client_send_404 (source->client, "Content-type not supported");
+                WARN1("Content-type \"%s\" not supported, dropping source", contenttype);
+                return -1;
+            }
+        }
+        else
+        {
+            WARN0("No content-type header, falling back to backwards compatibility mode "
+                    "for icecast 1.x relays. Assuming content is mp3.");
+            format_type = FORMAT_TYPE_GENERIC;
+        }
+
+        if (format_get_plugin (format_type, source) < 0)
+        {
+            global_unlock();
+            config_release_config();
+            if (source->client)
+                client_send_404 (source->client, "internal format allocation problem");
+            WARN1 ("plugin format failed for \"%s\"", source->mount);
+            return -1;
+        }
+
+        global.sources++;
         global_unlock();
+
+        /* set global settings first */
+        source->queue_size_limit = config->queue_size_limit;
+        source->timeout = config->source_timeout;
+        source->burst_size = config->burst_size;
+
+        /* for relays, we don't yet have a client, however we do require one
+         * to retrieve the stream from.  This is created here, quite late,
+         * because we can't use this client to return an error code/message,
+         * so we only do this once we know we're going to accept the source.
+         */
+        if (source->client == NULL)
+            source->client = client_create (source->con, source->parser);
+
+        while (mountproxy)
+        {
+            if (strcmp (mountproxy->mountname, source->mount) == 0)
+            {
+                source_apply_mount (source, mountproxy);
+                break;
+            }
+            mountproxy = mountproxy->next;
+        }
+        config_release_config();
+
+        source->shutdown_rwlock = &_source_shutdown_rwlock;
+        DEBUG0 ("source is ready to start");
+
         return 0;
     }
-    global.sources++;
-    global_unlock();
+    WARN1("Request to add source when maximum source limit "
+            "reached %d", global.sources);
 
-    stats_event_inc(NULL, "sources");
-    
-    config = config_get_config();
-    mountproxy = config->mounts;
-    thread_mutex_lock(&(config_locks()->mounts_lock));
+    global_unlock();
     config_release_config();
 
-    while(mountproxy) {
-        if(!strcmp(mountproxy->mountname, mount)) {
-            mountinfo = mountproxy;
-            break;
-        }
-        mountproxy = mountproxy->next;
-    }
+    if (source->client)
+        client_send_404 (source->client, "too many sources connected");
 
-    contenttype = httpp_getvar(parser, "content-type");
-
-    if (contenttype != NULL) {
-        format_type_t format = format_get_type(contenttype);
-        if (format == FORMAT_ERROR) {
-            WARN1("Content-type \"%s\" not supported, dropping source", contenttype);
-            thread_mutex_unlock(&(config_locks()->mounts_lock));
-            goto fail;
-        } else {
-            source = source_create(client, con, parser, mount, 
-                    format, mountinfo);
-            thread_mutex_unlock(&(config_locks()->mounts_lock));
-        }
-    } else {
-        format_type_t format = FORMAT_TYPE_MP3;
-        ERROR0("No content-type header, falling back to backwards compatibility mode for icecast 1.x relays. Assuming content is mp3.");
-        source = source_create(client, con, parser, mount, format, mountinfo);
-        thread_mutex_unlock(&(config_locks()->mounts_lock));
-    }
-
-    source->send_return = 1;
-    source->shutdown_rwlock = &_source_shutdown_rwlock;
-    sock_set_blocking(con->sock, SOCK_NONBLOCK);
-    thread_create("Source Thread", source_main, (void *)source, THREAD_DETACHED);
-    return 1;
-
-fail:
-    global_lock();
-    global.sources--;
-    global_unlock();
-
-    stats_event_dec(NULL, "sources");
-    return 0;
+    return -1;
 }
+
 
 static int _check_pass_http(http_parser_t *parser, 
         char *correctuser, char *correctpass)
@@ -556,15 +599,41 @@ static int _check_pass_ice(http_parser_t *parser, char *correctpass)
 
 int connection_check_admin_pass(http_parser_t *parser)
 {
+    int ret;
     ice_config_t *config = config_get_config();
     char *pass = config->admin_password;
     char *user = config->admin_username;
-    config_release_config();
+    char *protocol;
 
-    if(!pass || !user)
+    if(!pass || !user) {
+        config_release_config();
         return 0;
+    }
 
-    return _check_pass_http(parser, user, pass);
+    protocol = httpp_getvar (parser, HTTPP_VAR_PROTOCOL);
+    if (protocol && strcmp (protocol, "ICY") == 0)
+        ret = _check_pass_icy (parser, pass);
+    else 
+        ret = _check_pass_http (parser, user, pass);
+    config_release_config();
+    return ret;
+}
+
+int connection_check_relay_pass(http_parser_t *parser)
+{
+    int ret;
+    ice_config_t *config = config_get_config();
+    char *pass = config->relay_password;
+    char *user = "relay";
+
+    if(!pass || !user) {
+        config_release_config();
+        return 0;
+    }
+
+    ret = _check_pass_http(parser, user, pass);
+    config_release_config();
+    return ret;
 }
 
 int connection_check_source_pass(http_parser_t *parser, char *mount)
@@ -578,7 +647,6 @@ int connection_check_source_pass(http_parser_t *parser, char *mount)
 
     mount_proxy *mountinfo = config->mounts;
     thread_mutex_lock(&(config_locks()->mounts_lock));
-    config_release_config();
 
     while(mountinfo) {
         if(!strcmp(mountinfo->mountname, mount)) {
@@ -595,6 +663,7 @@ int connection_check_source_pass(http_parser_t *parser, char *mount)
 
     if(!pass) {
         WARN0("No source password set, rejecting source");
+        config_release_config();
         return 0;
     }
 
@@ -611,42 +680,64 @@ int connection_check_source_pass(http_parser_t *parser, char *mount)
                 WARN0("Source is using deprecated icecast login");
         }
     }
+    config_release_config();
     return ret;
 }
 
+
 static void _handle_source_request(connection_t *con, 
-        http_parser_t *parser, char *uri)
+        http_parser_t *parser, char *uri, int auth_style)
 {
     client_t *client;
+    source_t *source;
 
     client = client_create(con, parser);
 
     INFO1("Source logging in at mountpoint \"%s\"", uri);
-    stats_event_inc(NULL, "source_connections");
                 
-    if (!connection_check_source_pass(parser, uri)) {
-        INFO1("Source (%s) attempted to login with invalid or missing password", uri);
-        client_send_401(client);
+    if (uri[0] != '/')
+    {
+        WARN0 ("source mountpoint not starting with /");
+        client_send_401 (client);
         return;
     }
 
-    /* check to make sure this source has
-    ** a unique mountpoint
-    */
-
-    avl_tree_rlock(global.source_tree);
-    if (source_find_mount(uri) != NULL) {
-        avl_tree_unlock(global.source_tree);
-        INFO1("Source tried to log in as %s, but mountpoint is already used", uri);
-        client_send_404(client, "Mountpoint in use");
-        return;
+    if (auth_style == ICECAST_SOURCE_AUTH) {
+        if (!connection_check_source_pass(parser, uri)) {
+            /* We commonly get this if the source client is using the wrong
+             * protocol: attempt to diagnose this and return an error
+             */
+            /* TODO: Do what the above comment says */
+            INFO1("Source (%s) attempted to login with invalid or missing password", uri);
+            client_send_401(client);
+            return;
+        }
     }
-    avl_tree_unlock(global.source_tree);
-
-    if (!connection_create_source(client, con, parser, uri)) {
-        client_send_404(client, "Mountpoint in use");
+    source = source_reserve (uri);
+    if (source)
+    {
+        if (auth_style == SHOUTCAST_SOURCE_AUTH) {
+            source->shoutcast_compat = 1;
+        }
+        source->client = client;
+        source->parser = parser;
+        source->con = con;
+        if (connection_complete_source (source) < 0)
+        {
+            source->client = NULL;
+            source_free_source (source);
+        }
+        else
+            thread_create ("Source Thread", source_client_thread,
+                    source, THREAD_DETACHED);
+    }
+    else
+    {
+        client_send_404 (client, "Mountpoint in use");
+        WARN1 ("Mountpoint %s in use", uri);
     }
 }
+
 
 static void _handle_stats_request(connection_t *con, 
         http_parser_t *parser, char *uri)
@@ -673,7 +764,7 @@ static void _handle_stats_request(connection_t *con,
 }
 
 static void _handle_get_request(connection_t *con,
-        http_parser_t *parser, char *uri)
+        http_parser_t *parser, char *passed_uri)
 {
     char *fullpath;
     client_t *client;
@@ -689,6 +780,8 @@ static void _handle_get_request(connection_t *con,
     aliases *alias;
     ice_config_t *config;
     int client_limit;
+    int ret;
+    char *uri = passed_uri;
 
     config = config_get_config();
     fileserve = config->fileserve;
@@ -703,15 +796,7 @@ static void _handle_get_request(connection_t *con,
     }
     alias = config->aliases;
     client_limit = config->client_limit;
-    config_release_config();
 
-
-    DEBUG0("Client connected");
-
-    /* make a client */
-    client = client_create(con, parser);
-    stats_event_inc(NULL, "client_connections");
-                    
     /* there are several types of HTTP GET clients
     ** media clients, which are looking for a source (eg, URI = /stream.ogg)
     ** stats clients, which are looking for /admin/stats.xml
@@ -725,15 +810,23 @@ static void _handle_get_request(connection_t *con,
     /* Handle aliases */
     while(alias) {
         if(strcmp(uri, alias->source) == 0 && (alias->port == -1 || alias->port == serverport) && (alias->bind_address == NULL || (serverhost != NULL && strcmp(alias->bind_address, serverhost) == 0))) {
-            uri = alias->destination;
+            uri = strdup (alias->destination);
+            DEBUG2 ("alias has made %s into %s", passed_uri, uri);
             break;
         }
         alias = alias->next;
     }
+    config_release_config();
+
+    /* make a client */
+    client = client_create(con, parser);
+    stats_event_inc(NULL, "client_connections");
 
     /* Dispatch all admin requests */
-    if (strncmp(uri, "/admin/", 7) == 0) {
+    if ((strcmp(uri, "/admin.cgi") == 0) ||
+        (strncmp(uri, "/admin/", 7) == 0)) {
         admin_handle_request(client, uri);
+        if (uri != passed_uri) free (uri);
         return;
     }
 
@@ -757,6 +850,7 @@ static void _handle_get_request(connection_t *con,
             client_send_404(client, "The file you requested could not be found");
         }
         free(fullpath);
+        if (uri != passed_uri) free (uri);
         return;
     }
     else if(fileserve && stat(fullpath, &statbuf) == 0 && 
@@ -768,6 +862,7 @@ static void _handle_get_request(connection_t *con,
     {
         fserve_client_create(client, fullpath);
         free(fullpath);
+        if (uri != passed_uri) free (uri);
         return;
     }
     free(fullpath);
@@ -776,11 +871,8 @@ static void _handle_get_request(connection_t *con,
         char *sourceuri = strdup(uri);
         char *dot = strrchr(sourceuri, '.');
         *dot = 0;
-        avl_tree_rlock(global.source_tree);
-        source = source_find_mount(sourceuri);
-           if (source) {
-            client->respcode = 200;
-            bytes = sock_write(client->con->sock,
+        client->respcode = 200;
+        bytes = sock_write(client->con->sock,
                     "HTTP/1.0 200 OK\r\n"
                     "Content-Type: audio/x-mpegurl\r\n\r\n"
                     "http://%s:%d%s\r\n", 
@@ -788,42 +880,19 @@ static void _handle_get_request(connection_t *con,
                     port,
                     sourceuri
                     );
-            if(bytes > 0) client->con->sent_bytes = bytes;
-            client_destroy(client);
-        }
-        else if(fileserve) {
-            fullpath = util_get_path_from_normalised_uri(sourceuri);
-            if(stat(fullpath, &statbuf) == 0) {
-                fserve_client_create(client, fullpath);
-                free(fullpath);
-            }
-            else {
-                free(fullpath);
-                fullpath = util_get_path_from_normalised_uri(uri);
-                if(stat(fullpath, &statbuf) == 0) {
-                    fserve_client_create(client, fullpath);
-                    free(fullpath);
-                }
-                else {
-                    free(fullpath);
-                    client_send_404(client, 
-                            "The file you requested could not be found");
-                }
-            }
-        }
-        else {
-            client_send_404(client, "The file you requested could not be found");
-        }
-        avl_tree_unlock(global.source_tree);
+        if(bytes > 0) client->con->sent_bytes = bytes;
+        client_destroy(client);
         free(sourceuri);
+        if (uri != passed_uri) free (uri);
         return;
     }
 
     global_lock();
     if (global.clients >= client_limit) {
-        client_send_504(client,
-                "The server is already full. Try again later.");
         global_unlock();
+        client_send_404(client,
+                "The server is already full. Try again later.");
+        if (uri != passed_uri) free (uri);
         return;
     }
     global_unlock();
@@ -832,29 +901,75 @@ static void _handle_get_request(connection_t *con,
     source = source_find_mount(uri);
     if (source) {
         DEBUG0("Source found for client");
-                        
-        global_lock();
-        if (global.clients >= client_limit) {
-            client_send_504(client, 
-                    "The server is already full. Try again later.");
-            global_unlock();
+
+        /* The source may not be the requested source - it might have gone
+         * via one or more fallbacks. We only reject it for no-mount if it's
+         * the originally requested source
+         */
+        if(strcmp(uri, source->mount) == 0 && source->no_mount) {
             avl_tree_unlock(global.source_tree);
+            client_send_404(client, "This mount is unavailable.");
+            if (uri != passed_uri) free (uri);
             return;
         }
+        if (source->running == 0)
+        {
+            avl_tree_unlock(global.source_tree);
+            DEBUG0("inactive source, client dropped");
+            client_send_404(client, "This mount is unavailable.");
+            if (uri != passed_uri) free (uri);
+            return;
+        }
+
+        /* Check for any required authentication first */
+        if(source->authenticator != NULL) {
+            ret = auth_check_client(source, client);
+            if(ret != AUTH_OK) {
+                avl_tree_unlock(global.source_tree);
+                if (ret == AUTH_FORBIDDEN) {
+                    INFO1("Client attempted to log multiple times to source "
+                        "(\"%s\")", uri);
+                    client_send_403(client);
+                }
+                else {
+                /* If not FORBIDDEN, default to 401 */
+                    INFO1("Client attempted to log in to source (\"%s\")with "
+                        "incorrect or missing password", uri);
+                    client_send_401(client);
+                }
+                if (uri != passed_uri) free (uri);
+                return;
+            }
+        }
+
+        /* And then check that there's actually room in the server... */
+        global_lock();
+        if (global.clients >= client_limit) {
+            global_unlock();
+            avl_tree_unlock(global.source_tree);
+            client_send_404(client, 
+                    "The server is already full. Try again later.");
+            if (uri != passed_uri) free (uri);
+            return;
+        }
+        /* Early-out for per-source max listeners. This gets checked again
+         * by the source itself, later. This route gives a useful message to
+         * the client, also.
+         */
         else if(source->max_listeners != -1 && 
                 source->listeners >= source->max_listeners) 
         {
-            client_send_504(client, 
-                    "Too many clients on this mountpoint. Try again later.");
             global_unlock();
             avl_tree_unlock(global.source_tree);
+            client_send_404(client, 
+                    "Too many clients on this mountpoint. Try again later.");
+            if (uri != passed_uri) free (uri);
             return;
         }
         global.clients++;
         global_unlock();
                         
-        client->format_data = source->format->create_client_data(
-                source->format, source, client);
+        source->format->create_client_data (source, client);
 
         source->format->client_send_headers(source->format, source, client);
                         
@@ -875,6 +990,70 @@ static void _handle_get_request(connection_t *con,
         DEBUG0("Source not found for client");
         client_send_404(client, "The source you requested could not be found.");
     }
+    if (uri != passed_uri) free (uri);
+}
+
+void _handle_shoutcast_compatible(connection_t *con, char *mount, char *source_password) {
+    char shoutcast_password[256];
+    char *http_compliant;
+    int http_compliant_len = 0;
+    char header[4096];
+    http_parser_t *parser;
+
+    memset(shoutcast_password, 0, sizeof (shoutcast_password));
+    /* Step one of shoutcast auth protocol, read encoder password (1 line) */
+    if (util_read_header(con->sock, shoutcast_password, 
+            sizeof (shoutcast_password), 
+            READ_LINE) == 0) {
+        /* either we didn't get a complete line, or we timed out */
+        connection_close(con);
+        return;
+    }
+    /* Get rid of trailing \n */
+    shoutcast_password[strlen(shoutcast_password)-1] = '\000';
+    if (strcmp(shoutcast_password, source_password)) {
+        ERROR0("Invalid source password");
+        connection_close(con);
+        return;
+    }
+    /* Step two of shoutcast auth protocol, send OK2.  For those
+       interested, OK2 means it supports metadata updates via admin.cgi,
+       and the string "OK" can also be sent, but will indicate to the
+       shoutcast source client to not send metadata updates.
+       I believe icecast 1.x used to send OK. */
+    sock_write(con->sock, "%s\r\n", "OK2");
+
+    memset(header, 0, sizeof (header));
+    /* Step three of shoutcast auth protocol, read HTTP-style
+       request headers and process them.*/
+    if (util_read_header(con->sock, header, sizeof (header), 
+                         READ_ENTIRE_HEADER) == 0) {
+        /* either we didn't get a complete header, or we timed out */
+        connection_close(con);
+        return;
+    }
+    /* Here we create a valid HTTP request based of the information
+       that was passed in via the non-HTTP style protocol above. This
+       means we can use some of our existing code to handle this case */
+    http_compliant_len = strlen(header) + strlen(mount) + 20;
+    http_compliant = (char *)calloc(1, http_compliant_len);
+    snprintf (http_compliant, http_compliant_len,
+            "SOURCE %s HTTP/1.0\r\n%s", mount, header);
+    parser = httpp_create_parser();
+    httpp_initialize(parser, NULL);
+    if (httpp_parse(parser, http_compliant, strlen(http_compliant))) {
+        _handle_source_request(con, parser, mount, SHOUTCAST_SOURCE_AUTH);
+        free(http_compliant);
+        return;
+    }
+    else {
+        ERROR0("Invalid source request");
+        connection_close(con);
+        free(http_compliant);
+        httpp_destroy(parser);
+        return;
+    }
+    return;
 }
 
 static void *_handle_connection(void *arg)
@@ -884,12 +1063,12 @@ static void *_handle_connection(void *arg)
     http_parser_t *parser;
     char *rawuri, *uri;
     client_t *client;
+    int i = 0;
+    int continue_flag = 0;
+    ice_config_t *config;
+    char *source_password;
 
     while (global.running == ICE_RUNNING) {
-        memset(header, 0, 4096);
-
-        thread_cond_wait(&_pool_cond);
-        if (global.running != ICE_RUNNING) break;
 
         /* grab a connection and set the socket to blocking */
         while ((con = _get_connection())) {
@@ -912,8 +1091,32 @@ static void *_handle_connection(void *arg)
 
             sock_set_blocking(con->sock, SOCK_BLOCK);
 
+            continue_flag = 0;
+            /* Check for special shoutcast compatability processing */
+            for(i = 0; i < MAX_LISTEN_SOCKETS; i++) {
+                if(global.serversock[i] == con->serversock) {
+                    config = config_get_config();
+                    if (config->listeners[i].shoutcast_compat) {
+                        char *shoutcast_mount = strdup (config->shoutcast_mount);
+                        source_password = strdup(config->source_password);
+                        config_release_config();
+                        _handle_shoutcast_compatible(con, shoutcast_mount, source_password);
+                        free(source_password);
+                        free (shoutcast_mount);
+                        continue_flag = 1;
+                        break;
+                    }
+                    config_release_config();
+                }
+            }
+            if(continue_flag) {
+                continue;
+            }
+
             /* fill header with the http header */
-            if (util_read_header(con->sock, header, 4096) == 0) {
+            memset(header, 0, sizeof (header));
+            if (util_read_header(con->sock, header, sizeof (header), 
+                                 READ_ENTIRE_HEADER) == 0) {
                 /* either we didn't get a complete header, or we timed out */
                 connection_close(con);
                 continue;
@@ -942,7 +1145,7 @@ static void *_handle_connection(void *arg)
                 }
 
                 if (parser->req_type == httpp_req_source) {
-                    _handle_source_request(con, parser, uri);
+                    _handle_source_request(con, parser, uri, ICECAST_SOURCE_AUTH);
                 }
                 else if (parser->req_type == httpp_req_stats) {
                     _handle_stats_request(con, parser, uri);
@@ -957,22 +1160,8 @@ static void *_handle_connection(void *arg)
                 }
 
                 free(uri);
+                continue;
             } 
-            else if(httpp_parse_icy(parser, header, strlen(header))) {
-                /* TODO: Map incoming icy connections to /icy_0, etc. */
-                char mount[20];
-                int i = 0;
-
-                strcpy(mount, "/");
-
-                avl_tree_rlock(global.source_tree);
-                while(source_find_mount(mount) != NULL) {
-                    sprintf(mount, "/icy_%d", i++);
-                }
-                avl_tree_unlock(global.source_tree);
-
-                _handle_source_request(con, parser, mount);
-            }
             else {
                 ERROR0("HTTP request parsing failed");
                 connection_close(con);
@@ -980,9 +1169,9 @@ static void *_handle_connection(void *arg)
                 continue;
             }
         }
+        thread_sleep (100000);
     }
-
-    thread_exit(0);
+    DEBUG0 ("Connection thread done");
 
     return NULL;
 }

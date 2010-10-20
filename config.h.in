@@ -36,11 +36,17 @@
 /* Define to 1 if you have the <inttypes.h> header file. */
 #undef HAVE_INTTYPES_H
 
+/* Define to 1 if you have the `localtime_r' function. */
+#undef HAVE_LOCALTIME_R
+
 /* Define to 1 if you have the <memory.h> header file. */
 #undef HAVE_MEMORY_H
 
-/* Define to 1 if you have the `nanosleep' function. */
+/* Define if you have nanosleep */
 #undef HAVE_NANOSLEEP
+
+/* Define if you have libogg installed */
+#undef HAVE_OGG
 
 /* Define to 1 if you have the `poll' function. */
 #undef HAVE_POLL
@@ -93,8 +99,17 @@
 /* Define to 1 if you have the <sys/uio.h> header file. */
 #undef HAVE_SYS_UIO_H
 
+/* Define if Theora support is available */
+#undef HAVE_THEORA
+
 /* Define to 1 if you have the <unistd.h> header file. */
 #undef HAVE_UNISTD_H
+
+/* Define if you have winsock2.h on MINGW */
+#undef HAVE_WINSOCK2_H
+
+/* Define to 1 if you have the `writev' function. */
+#undef HAVE_WRITEV
 
 /* Name of package */
 #undef PACKAGE

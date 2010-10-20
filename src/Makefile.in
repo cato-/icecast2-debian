@@ -66,15 +66,22 @@ EXEEXT = @EXEEXT@
 OBJEXT = @OBJEXT@
 PATH_SEPARATOR = @PATH_SEPARATOR@
 AMTAR = @AMTAR@
+AR = @AR@
 AS = @AS@
 AWK = @AWK@
 CC = @CC@
 CFLAGS = @CFLAGS@
 CURL_CONFIG = @CURL_CONFIG@
+CXX = @CXX@
+CXXCPP = @CXXCPP@
 DEBUG = @DEBUG@
 DEPDIR = @DEPDIR@
 DLLTOOL = @DLLTOOL@
 ECHO = @ECHO@
+EGREP = @EGREP@
+F77 = @F77@
+GCJ = @GCJ@
+GCJFLAGS = @GCJFLAGS@
 ICECAST_OPTIONAL = @ICECAST_OPTIONAL@
 INSTALL_STRIP_PROGRAM = @INSTALL_STRIP_PROGRAM@
 LIBS = @LIBS@
@@ -93,7 +100,11 @@ PTHREAD_CFLAGS = @PTHREAD_CFLAGS@
 PTHREAD_CPPFLAGS = @PTHREAD_CPPFLAGS@
 PTHREAD_LIBS = @PTHREAD_LIBS@
 RANLIB = @RANLIB@
+RC = @RC@
 STRIP = @STRIP@
+THEORA_CFLAGS = @THEORA_CFLAGS@
+THEORA_LDFLAGS = @THEORA_LDFLAGS@
+THEORA_LIBS = @THEORA_LIBS@
 VERSION = @VERSION@
 VORBISENC_LIBS = @VORBISENC_LIBS@
 VORBISFILE_LIBS = @VORBISFILE_LIBS@
@@ -102,6 +113,7 @@ VORBIS_LDFLAGS = @VORBIS_LDFLAGS@
 VORBIS_LIBS = @VORBIS_LIBS@
 XIPH_CFLAGS = @XIPH_CFLAGS@
 XIPH_CPPFLAGS = @XIPH_CPPFLAGS@
+XIPH_LDFLAGS = @XIPH_LDFLAGS@
 XIPH_LIBS = @XIPH_LIBS@
 XMLCONFIG = @XMLCONFIG@
 XSLTCONFIG = @XSLTCONFIG@
@@ -115,15 +127,19 @@ SUBDIRS = avl thread httpp net log timing
 
 bin_PROGRAMS = icecast
 
-noinst_HEADERS = admin.h cfgfile.h os.h logging.h sighandler.h connection.h global.h\
-	 util.h slave.h source.h stats.h refbuf.h client.h format.h format_vorbis.h\
-	 compat.h format_mp3.h fserve.h xslt.h geturl.h yp.h event.h
+noinst_HEADERS = admin.h cfgfile.h os.h logging.h sighandler.h connection.h \
+    global.h util.h slave.h source.h stats.h refbuf.h client.h format.h \
+    compat.h format_mp3.h fserve.h xslt.h yp.h event.h md5.h \
+    auth.h format_ogg.h \
+    format_vorbis.h format_theora.h
 
-icecast_SOURCES = cfgfile.c main.c logging.c sighandler.c connection.c global.c\
-	 util.c slave.c source.c stats.c refbuf.c client.c format.c format_vorbis.c\
-	 format_mp3.c xslt.c fserve.c event.c admin.c
+icecast_SOURCES = cfgfile.c main.c logging.c sighandler.c connection.c global.c \
+    util.c slave.c source.c stats.c refbuf.c client.c format.c format_ogg.c \
+    format_mp3.c xslt.c fserve.c event.c admin.c auth.c md5.c
 
-EXTRA_icecast_SOURCES = geturl.c yp.c
+EXTRA_icecast_SOURCES = yp.c \
+    format_vorbis.c format_theora.c
+
 
 icecast_DEPENDENCIES = @ICECAST_OPTIONAL@ net/libicenet.la thread/libicethread.la \
     httpp/libicehttpp.la log/libicelog.la avl/libiceavl.la timing/libicetiming.la
@@ -132,6 +148,7 @@ icecast_LDADD = $(icecast_DEPENDENCIES) @XIPH_LIBS@
 
 AM_CFLAGS = @XIPH_CFLAGS@
 AM_CPPFLAGS = @XIPH_CPPFLAGS@
+AM_LDFLAGS = @XIPH_LDFLAGS@
 subdir = src
 mkinstalldirs = $(SHELL) $(top_srcdir)/mkinstalldirs
 CONFIG_HEADER = $(top_builddir)/config.h
@@ -143,8 +160,9 @@ am_icecast_OBJECTS = cfgfile.$(OBJEXT) main.$(OBJEXT) logging.$(OBJEXT) \
 	sighandler.$(OBJEXT) connection.$(OBJEXT) global.$(OBJEXT) \
 	util.$(OBJEXT) slave.$(OBJEXT) source.$(OBJEXT) stats.$(OBJEXT) \
 	refbuf.$(OBJEXT) client.$(OBJEXT) format.$(OBJEXT) \
-	format_vorbis.$(OBJEXT) format_mp3.$(OBJEXT) xslt.$(OBJEXT) \
-	fserve.$(OBJEXT) event.$(OBJEXT) admin.$(OBJEXT)
+	format_ogg.$(OBJEXT) format_mp3.$(OBJEXT) xslt.$(OBJEXT) \
+	fserve.$(OBJEXT) event.$(OBJEXT) admin.$(OBJEXT) auth.$(OBJEXT) \
+	md5.$(OBJEXT)
 icecast_OBJECTS = $(am_icecast_OBJECTS)
 icecast_LDFLAGS =
 
@@ -154,13 +172,15 @@ CPPFLAGS = @CPPFLAGS@
 LDFLAGS = @LDFLAGS@
 depcomp = $(SHELL) $(top_srcdir)/depcomp
 am__depfiles_maybe = depfiles
-@AMDEP_TRUE@DEP_FILES = ./$(DEPDIR)/admin.Po ./$(DEPDIR)/cfgfile.Po \
-@AMDEP_TRUE@	./$(DEPDIR)/client.Po ./$(DEPDIR)/connection.Po \
-@AMDEP_TRUE@	./$(DEPDIR)/event.Po ./$(DEPDIR)/format.Po \
-@AMDEP_TRUE@	./$(DEPDIR)/format_mp3.Po \
+@AMDEP_TRUE@DEP_FILES = ./$(DEPDIR)/admin.Po ./$(DEPDIR)/auth.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/cfgfile.Po ./$(DEPDIR)/client.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/connection.Po ./$(DEPDIR)/event.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/format.Po ./$(DEPDIR)/format_mp3.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/format_ogg.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/format_theora.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/format_vorbis.Po ./$(DEPDIR)/fserve.Po \
-@AMDEP_TRUE@	./$(DEPDIR)/geturl.Po ./$(DEPDIR)/global.Po \
-@AMDEP_TRUE@	./$(DEPDIR)/logging.Po ./$(DEPDIR)/main.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/global.Po ./$(DEPDIR)/logging.Po \
+@AMDEP_TRUE@	./$(DEPDIR)/main.Po ./$(DEPDIR)/md5.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/refbuf.Po ./$(DEPDIR)/sighandler.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/slave.Po ./$(DEPDIR)/source.Po \
 @AMDEP_TRUE@	./$(DEPDIR)/stats.Po ./$(DEPDIR)/util.Po \
@@ -233,18 +253,21 @@ distclean-compile:
 	-rm -f *.tab.c
 
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/admin.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/auth.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/cfgfile.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/client.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/connection.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/event.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/format.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/format_mp3.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/format_ogg.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/format_theora.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/format_vorbis.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/fserve.Po@am__quote@
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/geturl.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/global.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/logging.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/main.Po@am__quote@
+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/md5.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/refbuf.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/sighandler.Po@am__quote@
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/slave.Po@am__quote@

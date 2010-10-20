@@ -1,4 +1,16 @@
 /* -*- c-basic-offset: 4; -*- */
+/* Icecast
+ *
+ * This program is distributed under the GNU General Public License, version 2.
+ * A copy of this license is included with this source.
+ *
+ * Copyright 2000-2004, Jack Moffitt <jack@xiph.org, 
+ *                      Michael Smith <msmith@xiph.org>,
+ *                      oddsock <oddsock@xiph.org>,
+ *                      Karl Heyes <karl@xiph.org>
+ *                      and others (see AUTHORS for details).
+ */
+
 /* format_mp3.c
 **
 ** format plugin for mp3
@@ -16,10 +28,6 @@
 # include <strings.h>
 #endif
 
-#ifdef HAVE_ALLOCA_H
-#include <alloca.h>
-#endif
-
 #include "refbuf.h"
 #include "source.h"
 #include "client.h"
@@ -35,7 +43,7 @@
 #ifdef WIN32
 #define strcasecmp stricmp
 #define strncasecmp strnicmp
-#define alloca _alloca
+#define snprintf _snprintf
 #endif
 
 #define CATMODULE "format-mp3"
@@ -46,372 +54,604 @@
 #define ICY_METADATA_INTERVAL 16000
 
 static void format_mp3_free_plugin(format_plugin_t *self);
-static int format_mp3_get_buffer(format_plugin_t *self, char *data, 
-        unsigned long len, refbuf_t **buffer);
-static refbuf_queue_t *format_mp3_get_predata(format_plugin_t *self);
-static void *format_mp3_create_client_data(format_plugin_t *self,
-        source_t *source, client_t *client);
-static int format_mp3_write_buf_to_client(format_plugin_t *self,
-        client_t *client, unsigned char *buf, int len);
+static refbuf_t *mp3_get_filter_meta (source_t *source);
+static refbuf_t *mp3_get_no_meta (source_t *source);
+
+static int  format_mp3_create_client_data (source_t *source, client_t *client);
+static void free_mp3_client_data (client_t *client);
+static int format_mp3_write_buf_to_client(format_plugin_t *self, client_t *client);
 static void format_mp3_send_headers(format_plugin_t *self, 
         source_t *source, client_t *client);
+static void write_mp3_to_file (struct source_tag *source, refbuf_t *refbuf);
+
 
 typedef struct {
    int use_metadata;
-   int interval;
-   int offset;
-   int metadata_age;
    int metadata_offset;
+   unsigned int since_meta_block;
+   int in_metadata;
+   refbuf_t *associated;
 } mp3_client_data;
 
-format_plugin_t *format_mp3_get_plugin(http_parser_t *parser)
+int format_mp3_get_plugin (source_t *source)
 {
     char *metadata;
     format_plugin_t *plugin;
     mp3_state *state = calloc(1, sizeof(mp3_state));
+    refbuf_t *meta;
 
-    plugin = (format_plugin_t *)malloc(sizeof(format_plugin_t));
+    plugin = (format_plugin_t *)calloc(1, sizeof(format_plugin_t));
 
-    plugin->type = FORMAT_TYPE_MP3;
-    plugin->has_predata = 0;
-    plugin->get_buffer = format_mp3_get_buffer;
-    plugin->get_predata = format_mp3_get_predata;
+    plugin->type = FORMAT_TYPE_GENERIC;
+    plugin->get_buffer = mp3_get_no_meta;
     plugin->write_buf_to_client = format_mp3_write_buf_to_client;
+    plugin->write_buf_to_file = write_mp3_to_file;
     plugin->create_client_data = format_mp3_create_client_data;
     plugin->client_send_headers = format_mp3_send_headers;
     plugin->free_plugin = format_mp3_free_plugin;
-    plugin->format_description = "MP3 audio";
+    plugin->set_tag = mp3_set_tag;
+
+    plugin->contenttype = httpp_getvar (source->parser, "content-type");
+    if (plugin->contenttype == NULL) {
+        /* We default to MP3 audio for old clients without content types */
+        plugin->contenttype = "audio/mpeg";
+    }
 
     plugin->_state = state;
 
-    state->metadata_age = 0;
-    state->metadata = strdup("");
-    thread_mutex_create(&(state->lock));
+    /* initial metadata needs to be blank for sending to clients and for
+       comparing with new metadata */
+    meta = refbuf_new (2);
+    memcpy (meta->data, "\0\0", 2);
+    meta->len = 1;
+    state->metadata = meta;
+    state->interval = ICY_METADATA_INTERVAL;
 
-    metadata = httpp_getvar(parser, "icy-metaint");
-    if(metadata)
-        state->inline_metadata_interval = atoi(metadata);
-
-    return plugin;
-}
-
-static int send_metadata(client_t *client, mp3_client_data *client_state,
-        mp3_state *source_state)
-{
-    int send_metadata;
-    int len_byte;
-    int len;
-    unsigned char *buf;
-    int ret;
-    int source_age;
-    char    *fullmetadata = NULL;
-    int    fullmetadata_size = 0;
-
-    thread_mutex_lock(&(source_state->lock));
-    if(source_state->metadata == NULL) {
-        /* Shouldn't be possible */
-        thread_mutex_unlock(&(source_state->lock));
-        return 0;
-    }
-
-    if(source_state->metadata_raw) {
-        fullmetadata_size = strlen(source_state->metadata);
-        fullmetadata = source_state->metadata;
-    }
-    else {
-        fullmetadata_size = strlen(source_state->metadata) + 
-            strlen("StreamTitle='';StreamUrl=''") + 1;
-
-        fullmetadata = alloca(fullmetadata_size);
-
-        sprintf(fullmetadata, "StreamTitle='%s';StreamUrl=''", 
-                source_state->metadata);
-    }
-
-    source_age = source_state->metadata_age;
-    send_metadata = source_age != client_state->metadata_age;
-
-    if(send_metadata && strlen(fullmetadata) > 0)
-        len_byte = strlen(fullmetadata)/16 + 1 - 
-            client_state->metadata_offset;
-    else
-        len_byte = 0;
-    len = 1 + len_byte*16;
-    buf = alloca(len);
-
-    memset(buf, 0, len);
-
-    buf[0] = len_byte;
-
-    if (len > 1) {
-        strncpy(buf+1, fullmetadata + client_state->metadata_offset, len-2);
-    }
-
-    thread_mutex_unlock(&(source_state->lock));
-
-    ret = sock_write_bytes(client->con->sock, buf, len);
-
-    if(ret > 0 && ret < len) {
-        client_state->metadata_offset += ret;
-    }
-    else if(ret == len) {
-        client_state->metadata_age = source_age;
-        client_state->offset = 0;
-        client_state->metadata_offset = 0;
-    }
-
-    return ret;
-}
-
-static int format_mp3_write_buf_to_client(format_plugin_t *self, 
-    client_t *client, unsigned char *buf, int len) 
-{
-    int ret;
-    
-    if(((mp3_state *)self->_state)->metadata && 
-            ((mp3_client_data *)(client->format_data))->use_metadata)
+    metadata = httpp_getvar (source->parser, "icy-metaint");
+    if (metadata)
     {
-        mp3_client_data *state = client->format_data;
-        int max = state->interval - state->offset;
-
-        if(len == 0) /* Shouldn't happen */
-            return 0;
-
-        if(max > len)
-            max = len;
-
-        if(max > 0) {
-            ret = sock_write_bytes(client->con->sock, buf, max);
-            if(ret > 0)
-                state->offset += ret;
-        }
-        else {
-            ret = send_metadata(client, state, self->_state);
-            if(ret > 0)
-                client->con->sent_bytes += ret;
-            ret = 0;
-        }
-
+        state->inline_metadata_interval = atoi (metadata);
+        state->offset = 0;
+        plugin->get_buffer = mp3_get_filter_meta;
     }
-    else {
-        ret = sock_write_bytes(client->con->sock, buf, len);
-    }
+    source->format = plugin;
+    thread_mutex_create (&state->url_lock);
 
-    if(ret < 0) {
-        if(sock_recoverable(sock_error())) {
-            DEBUG1("Client had recoverable error %ld", ret);
-            ret = 0;
+    return 0;
+}
+
+
+void mp3_set_tag (format_plugin_t *plugin, char *tag, char *value)
+{
+    mp3_state *source_mp3 = plugin->_state;
+    unsigned int len;
+    const char meta[] = "StreamTitle='";
+    int size = sizeof (meta) + 1;
+
+    if (tag==NULL || value == NULL)
+        return;
+
+    len = strlen (value)+1;
+    size += len;
+    /* protect against multiple updaters */
+    thread_mutex_lock (&source_mp3->url_lock);
+    if (strcmp (tag, "title") == 0 || strcmp (tag, "song") == 0)
+    {
+        char *p = strdup (value);
+        if (p)
+        {
+            free (source_mp3->url_title);
+            free (source_mp3->url_artist);
+            source_mp3->url_artist = NULL;
+            source_mp3->url_title = p;
+            source_mp3->update_metadata = 1;
         }
+    }
+    else if (strcmp (tag, "artist") == 0)
+    {
+        char *p = strdup (value);
+        if (p)
+        {
+            free (source_mp3->url_artist);
+            source_mp3->url_artist = p;
+            source_mp3->update_metadata = 1;
+        }
+    }
+    thread_mutex_unlock (&source_mp3->url_lock);
+}
+
+
+static void filter_shoutcast_metadata (source_t *source, char *metadata, unsigned int meta_len)
+{
+    if (metadata)
+    {
+        char *end, *p;
+        int len;
+
+        do
+        {
+            metadata++;
+            if (strncmp (metadata, "StreamTitle='", 13))
+                break;
+            if ((end = strstr (metadata, "\';")) == NULL)
+                break;
+            len = (end - metadata) - 13;
+            p = calloc (1, len+1);
+            if (p)
+            {
+                memcpy (p, metadata+13, len);
+                logging_playlist (source->mount, p, source->listeners);
+                stats_event (source->mount, "title", p);
+                yp_touch (source->mount);
+                free (p);
+            }
+        } while (0);
+    }
+}
+
+
+/* called from the source thread when the metadata has been updated.
+ * The artist title are checked and made ready for clients to send
+ */
+void mp3_set_title (source_t *source)
+{
+    const char meta[] = "StreamTitle='";
+    int size;
+    unsigned char len_byte;
+    refbuf_t *p;
+    unsigned int len = sizeof(meta) + 2; /* the StreamTitle, quotes, ; and null */
+    mp3_state *source_mp3 = source->format->_state;
+
+    /* make sure the url data does not disappear from under us */
+    thread_mutex_lock (&source_mp3->url_lock);
+
+    /* work out message length */
+    if (source_mp3->url_artist)
+        len += strlen (source_mp3->url_artist);
+    if (source_mp3->url_title)
+        len += strlen (source_mp3->url_title);
+    if (source_mp3->url_artist && source_mp3->url_title)
+        len += 3;
+#define MAX_META_LEN 255*16
+    if (len > MAX_META_LEN)
+    {
+        thread_mutex_unlock (&source_mp3->url_lock);
+        WARN1 ("Metadata too long at %d chars", len);
+        return;
+    }
+    /* work out the metadata len byte */
+    len_byte = (len-1) / 16 + 1;
+
+    /* now we know how much space to allocate, +1 for the len byte */
+    size = len_byte * 16 + 1;
+
+    p = refbuf_new (size);
+    if (p)
+    {
+        mp3_state *source_mp3 = source->format->_state;
+
+        memset (p->data, '\0', size);
+        if (source_mp3->url_artist && source_mp3->url_title)
+            snprintf (p->data, size, "%c%s%s - %s';", len_byte, meta,
+                    source_mp3->url_artist, source_mp3->url_title);
+        else
+            snprintf (p->data, size, "%c%s%s';", len_byte, meta,
+                    source_mp3->url_title);
+        filter_shoutcast_metadata (source, p->data, size);
+
+        refbuf_release (source_mp3->metadata);
+        source_mp3->metadata = p;
+    }
+    thread_mutex_unlock (&source_mp3->url_lock);
+}
+
+
+/* send the appropriate metadata, and return the number of bytes written
+ * which is 0 or greater.  Check the client in_metadata value afterwards
+ * to see if all metadata has been sent
+ */
+static int send_mp3_metadata (client_t *client, refbuf_t *associated)
+{
+    int ret = 0;
+    unsigned char *metadata;
+    int meta_len;
+    mp3_client_data *client_mp3 = client->format_data;
+
+    /* If there is a change in metadata then send it else
+     * send a single zero value byte in its place
+     */
+    if (associated == client_mp3->associated)
+    {
+        metadata = "\0";
+        meta_len = 1;
     }
     else
-        client->con->sent_bytes += ret;
+    {
+        metadata = associated->data + client_mp3->metadata_offset;
+        meta_len = associated->len - client_mp3->metadata_offset;
+    }
+    ret = client_send_bytes (client, metadata, meta_len);
+
+    if (ret == meta_len)
+    {
+        client_mp3->associated = associated;
+        client_mp3->metadata_offset = 0;
+        client_mp3->in_metadata = 0;
+        client_mp3->since_meta_block = 0;
+        return ret;
+    }
+    if (ret > 0)
+        client_mp3->metadata_offset += ret;
+    else
+        ret = 0;
+    client_mp3->in_metadata = 1;
 
     return ret;
+}
+
+
+/* Handler for writing mp3 data to a client, taking into account whether
+ * client has requested shoutcast style metadata updates
+ */
+static int format_mp3_write_buf_to_client (format_plugin_t *self, client_t *client) 
+{
+    int ret, written = 0;
+    mp3_client_data *client_mp3 = client->format_data;
+    mp3_state *source_mp3 = self->_state;
+    refbuf_t *refbuf = client->refbuf;
+    char *buf;
+    unsigned int len;
+
+    if (refbuf->next == NULL && client->pos == refbuf->len)
+        return 0;
+
+    /* move to the next buffer if we have finished with the current one */
+    if (refbuf->next && client->pos == refbuf->len)
+    {
+        client_set_queue (client, refbuf->next);
+        refbuf = client->refbuf;
+    }
+
+    buf = refbuf->data + client->pos;
+    len = refbuf->len - client->pos;
+
+    do
+    {
+        /* send any unwritten metadata to the client */
+        if (client_mp3->in_metadata)
+        {
+            refbuf_t *associated = refbuf->associated;
+            ret = send_mp3_metadata (client, associated);
+
+            if (client_mp3->in_metadata)
+                break;
+            written += ret;
+        }
+        /* see if we need to send the current metadata to the client */
+        if (client_mp3->use_metadata)
+        {
+            unsigned int remaining = source_mp3->interval -
+                client_mp3->since_meta_block;
+
+            /* sending the metadata block */
+            if (remaining <= len)
+            {
+                /* send any mp3 before the metadata block */
+                if (remaining)
+                {
+                    ret = client_send_bytes (client, buf, remaining);
+
+                    if (ret > 0)
+                    {
+                        client_mp3->since_meta_block += ret;
+                        client->pos += ret;
+                    }
+                    if (ret < (int)remaining)
+                        break;
+                    written += ret;
+                }
+                ret = send_mp3_metadata (client, refbuf->associated);
+                if (client_mp3->in_metadata)
+                    break;
+                written += ret;
+                /* change buf and len */
+                buf += remaining;
+                len -= remaining;
+            }
+        }
+        /* write any mp3, maybe after the metadata block */
+        if (len)
+        {
+            ret = client_send_bytes (client, buf, len);
+
+            if (ret > 0)
+            {
+                client_mp3->since_meta_block += ret;
+                client->pos += ret;
+            }
+            if (ret < (int)len)
+                break;
+            written += ret;
+        }
+        ret = 0;
+    } while (0);
+
+    if (ret > 0)
+        written += ret;
+    return written;
 }
 
 static void format_mp3_free_plugin(format_plugin_t *self)
 {
     /* free the plugin instance */
     mp3_state *state = self->_state;
-    thread_mutex_destroy(&(state->lock));
 
-    free(state->metadata);
+    thread_mutex_destroy (&state->url_lock);
+    free (state->url_artist);
+    free (state->url_title);
+    refbuf_release (state->metadata);
     free(state);
     free(self);
 }
 
-static int format_mp3_get_buffer(format_plugin_t *self, char *data, 
-    unsigned long len, refbuf_t **buffer)
+
+/* read an mp3 stream which does not have shoutcast style metadata */
+static refbuf_t *mp3_get_no_meta (source_t *source)
 {
+    int bytes;
     refbuf_t *refbuf;
-    mp3_state *state = self->_state;
+    mp3_state *source_mp3 = source->format->_state;
 
-    /* Set this to NULL in case it doesn't get set to a valid buffer later */
-    *buffer = NULL;
+    if ((refbuf = refbuf_new (2048)) == NULL)
+        return NULL;
+    bytes = sock_read_bytes (source->con->sock, refbuf->data, 2048);
 
-    if(!data)
-        return 0;
-
-    if(state->inline_metadata_interval) {
-        /* Source is sending metadata, handle it... */
-
-        while(len > 0) {
-            int to_read = state->inline_metadata_interval - state->offset;
-            if(to_read > 0) {
-                refbuf_t *old_refbuf = *buffer;
-
-                if(to_read > len)
-                    to_read = len;
-
-                if(old_refbuf) {
-                    refbuf = refbuf_new(to_read + old_refbuf->len);
-                    memcpy(refbuf->data, old_refbuf->data, old_refbuf->len);
-                    memcpy(refbuf->data+old_refbuf->len, data, to_read);
-
-                    refbuf_release(old_refbuf);
-                }
-                else {
-                    refbuf = refbuf_new(to_read);
-                    memcpy(refbuf->data, data, to_read);
-                }
-
-                *buffer = refbuf;
-
-                state->offset += to_read;
-                data += to_read;
-                len -= to_read;
-            }
-            else if(!state->metadata_length) {
-                /* Next up is the metadata byte... */
-                unsigned char byte = data[0];
-                data++;
-                len--;
-
-                /* According to the "spec"... this byte * 16 */
-                state->metadata_length = byte * 16;
-
-                if(state->metadata_length) {
-                    state->metadata_buffer = 
-                        calloc(state->metadata_length + 1, 1);
-
-                    /* Ensure we have a null-terminator even if the source
-                     * stream is invalid.
-                     */
-                    state->metadata_buffer[state->metadata_length] = 0;
-                }
-                else {
-                    state->offset = 0;
-                }
-
-                state->metadata_offset = 0;
-            }
-            else {
-                /* Metadata to read! */
-                int readable = state->metadata_length - state->metadata_offset;
-
-                if(readable > len)
-                    readable = len;
-
-                memcpy(state->metadata_buffer + state->metadata_offset, 
-                        data, readable);
-
-                state->metadata_offset += readable;
-
-                data += readable;
-                len -= readable;
-
-                if(state->metadata_offset == state->metadata_length)
-                {
-                    if(state->metadata_length)
-                    {
-                        thread_mutex_lock(&(state->lock));
-                        free(state->metadata);
-                        state->metadata = state->metadata_buffer;
-                        state->metadata_buffer = NULL;
-                        state->metadata_age++;
-                        state->metadata_raw = 1;
-                        thread_mutex_unlock(&(state->lock));
-                    }
-
-                    state->offset = 0;
-                    state->metadata_length = 0;
-                }
-            }
-        }
-
-        /* Either we got a buffer above (in which case it can be used), or
-         * we set *buffer to NULL in the prologue, so the return value is
-         * correct anyway...
-         */
-        return 0;
+    if (bytes == 0)
+    {
+        INFO1 ("End of stream %s", source->mount);
+        source->running = 0;
+        refbuf_release (refbuf);
+        return NULL;
     }
-    else {
-        /* Simple case - no metadata, just dump data directly to a buffer */
-        refbuf = refbuf_new(len);
-
-        memcpy(refbuf->data, data, len);
-
-        *buffer = refbuf;
-        return 0;
+    if (source_mp3->update_metadata)
+    {
+        mp3_set_title (source);
+        source_mp3->update_metadata = 0;
     }
-}
+    if (bytes > 0)
+    {
+        refbuf->len  = bytes;
+        refbuf->associated = source_mp3->metadata;
+        refbuf_addref (source_mp3->metadata);
+        refbuf->sync_point = 1;
+        return refbuf;
+    }
+    refbuf_release (refbuf);
 
-static refbuf_queue_t *format_mp3_get_predata(format_plugin_t *self)
-{
+    if (!sock_recoverable (sock_error()))
+        source->running = 0;
+
     return NULL;
 }
 
-static void *format_mp3_create_client_data(format_plugin_t *self, 
-        source_t *source, client_t *client) 
+
+/* read mp3 data with inlined metadata from the source. Filter out the
+ * metadata so that the mp3 data itself is store on the queue and the
+ * metadata is is associated with it
+ */
+static refbuf_t *mp3_get_filter_meta (source_t *source)
+{
+    refbuf_t *refbuf;
+    format_plugin_t *plugin = source->format;
+    mp3_state *source_mp3 = plugin->_state;
+    unsigned char *src;
+    unsigned int bytes, mp3_block;
+    int ret;
+
+    refbuf = refbuf_new (2048);
+    src = refbuf->data;
+
+    ret = sock_read_bytes (source->con->sock, refbuf->data, 2048);
+
+    if (ret == 0)
+    {
+        INFO1 ("End of stream %s", source->mount);
+        source->running = 0;
+        refbuf_release (refbuf);
+        return NULL;
+    }
+    if (source_mp3->update_metadata)
+    {
+        mp3_set_title (source);
+        source_mp3->update_metadata = 0;
+    }
+    if (ret < 0)
+    {
+        refbuf_release (refbuf);
+        if (sock_recoverable (sock_error()))
+            return NULL; /* go back to waiting */
+        INFO0 ("Error on connection from source");
+        source->running = 0;
+        return NULL;
+    }
+    /* fill the buffer with the read data */
+    bytes = (unsigned int)ret;
+    refbuf->len = 0;
+    while (bytes > 0)
+    {
+        unsigned int metadata_remaining;
+
+        mp3_block = source_mp3->inline_metadata_interval - source_mp3->offset;
+
+        /* is there only enough to account for mp3 data */
+        if (bytes <= mp3_block)
+        {
+            refbuf->len += bytes;
+            source_mp3->offset += bytes;
+            break;
+        }
+        /* we have enough data to get to the metadata
+         * block, but only transfer upto it */
+        if (mp3_block)
+        {
+            src += mp3_block;
+            bytes -= mp3_block;
+            refbuf->len += mp3_block;
+            source_mp3->offset += mp3_block;
+            continue;
+        }
+
+        /* process the inline metadata, len == 0 indicates not seen any yet */
+        if (source_mp3->build_metadata_len == 0)
+        {
+            memset (source_mp3->build_metadata, 0,
+                    sizeof (source_mp3->build_metadata));
+            source_mp3->build_metadata_offset = 0;
+            source_mp3->build_metadata_len = 1 + (*src * 16);
+        }
+
+        /* do we have all of the metatdata block */
+        metadata_remaining = source_mp3->build_metadata_len -
+            source_mp3->build_metadata_offset;
+        if (bytes < metadata_remaining)
+        {
+            memcpy (source_mp3->build_metadata +
+                    source_mp3->build_metadata_offset, src, bytes);
+            source_mp3->build_metadata_offset += bytes;
+            break;
+        }
+        /* copy all bytes except the last one, that way we 
+         * know a null byte terminates the message */
+        memcpy (source_mp3->build_metadata + source_mp3->build_metadata_offset,
+                src, metadata_remaining-1);
+
+        /* overwrite metadata in the buffer */
+        bytes -= metadata_remaining;
+        memmove (src, src+metadata_remaining, bytes);
+
+        /* assign metadata if it's greater than 1 byte, and the text has changed */
+        if (source_mp3->build_metadata_len > 1 &&
+                strcmp (source_mp3->build_metadata+1, source_mp3->metadata->data+1) != 0)
+        {
+            refbuf_t *meta = refbuf_new (source_mp3->build_metadata_len);
+            memcpy (meta->data, source_mp3->build_metadata,
+                    source_mp3->build_metadata_len);
+
+            DEBUG1("shoutcast metadata %.4080s", meta->data+1);
+            if (strncmp (meta->data+1, "StreamTitle=", 12) == 0)
+            {
+                filter_shoutcast_metadata (source, source_mp3->build_metadata,
+                        source_mp3->build_metadata_len);
+                refbuf_release (source_mp3->metadata);
+                source_mp3->metadata = meta;
+            }
+            else
+            {
+                ERROR0 ("Incorrect metadata format, ending stream");
+                source->running = 0;
+                refbuf_release (refbuf);
+                return NULL;
+            }
+        }
+        source_mp3->offset = 0;
+        source_mp3->build_metadata_len = 0;
+    }
+    /* the data we have just read may of just been metadata */
+    if (refbuf->len == 0)
+    {
+        refbuf_release (refbuf);
+        return NULL;
+    }
+    refbuf->associated = source_mp3->metadata;
+    refbuf_addref (source_mp3->metadata);
+    refbuf->sync_point = 1;
+
+    return refbuf;
+}
+
+
+static int format_mp3_create_client_data(source_t *source, client_t *client)
 {
     mp3_client_data *data = calloc(1,sizeof(mp3_client_data));
     char *metadata;
 
-    data->interval = ICY_METADATA_INTERVAL;
-    data->offset = 0;
+    if (data == NULL)
+        return -1;
 
+    client->format_data = data;
+    client->free_client_data = free_mp3_client_data;
     metadata = httpp_getvar(client->parser, "icy-metadata");
     if(metadata)
         data->use_metadata = atoi(metadata)>0?1:0;
 
-    return data;
+    return 0;
 }
+
+
+static void free_mp3_client_data (client_t *client)
+{
+    free (client->format_data);
+    client->format_data = NULL;
+}
+
 
 static void format_mp3_send_headers(format_plugin_t *self,
         source_t *source, client_t *client)
 {
-    http_var_t *var;
-    avl_node *node;
     int bytes;
+    char *content_length;
+
+    mp3_client_data *mp3data = client->format_data;
     
     client->respcode = 200;
+
+    /* This little bit of code is for compatability with
+       flash mp3 streaming. Flash requires a content-length
+       in order for it to stream mp3s, and so based off a
+       trial and error effort, the following number was derived.
+       It is the largest content-length that we can send, anything
+       larger causes flash streaming not to work. Note that it
+       is also possible that other flash-based players may not
+       send this request header (x-flash-version), but given the
+       sampleset I had access to, this should suffice. */
+    if (httpp_getvar(client->parser, "x-flash-version")) {
+        content_length = "Content-Length: 347122319\r\n";
+    }
+    else {
+        content_length = "";
+    }
+
     /* TODO: This may need to be ICY/1.0 for shoutcast-compatibility? */
     bytes = sock_write(client->con->sock, 
             "HTTP/1.0 200 OK\r\n" 
-            "Content-Type: %s\r\n", 
-            format_get_mimetype(source->format->type));
+            "Content-Type: %s\r\n"
+            "%s", 
+            source->format->contenttype,
+            content_length);
 
-    if(bytes > 0) client->con->sent_bytes += bytes;
+    if (bytes > 0)
+        client->con->sent_bytes += bytes;
 
-    /* iterate through source http headers and send to client */
-    avl_tree_rlock(source->parser->vars);
-    node = avl_get_first(source->parser->vars);
-    while (node) {
-        var = (http_var_t *)node->key;
-	if (!strcasecmp(var->name, "ice-audio-info")) {
-	    /* convert ice-audio-info to icy-br */
-	    char *brfield;
-	    unsigned int bitrate;
-
-	    brfield = strstr(var->value, "bitrate=");
-	    if (brfield && sscanf(var->value, "bitrate=%u", &bitrate)) {
-		bytes = sock_write(client->con->sock, "icy-br:%u\r\n", bitrate);
-		if (bytes > 0)
-		    client->con->sent_bytes += bytes;
-	    }
-	} else if (strcasecmp(var->name, "ice-password") &&
-	    strcasecmp(var->name, "icy-metaint") &&
-	    (!strncasecmp("ice-", var->name, 4) ||
-	     !strncasecmp("icy-", var->name, 4))) {
-	    bytes = sock_write(client->con->sock, "icy%s:%s\r\n",
-			       var->name + 3, var->value);
-            if (bytes > 0)
-		client->con->sent_bytes += bytes;
-        }
-        node = avl_get_next(node);
-    }
-    avl_tree_unlock(source->parser->vars);
-
-    if(((mp3_client_data *)(client->format_data))->use_metadata) {
+    if (mp3data->use_metadata)
+    {
         int bytes = sock_write(client->con->sock, "icy-metaint:%d\r\n", 
                 ICY_METADATA_INTERVAL);
         if(bytes > 0)
             client->con->sent_bytes += bytes;
     }
+    format_send_general_headers(self, source, client);
+}
 
-    bytes = sock_write(client->con->sock,
-		       "Server: %s\r\n", ICECAST_VERSION_STRING);
-    if (bytes > 0)
-	client->con->sent_bytes += bytes;
+
+static void write_mp3_to_file (struct source_tag *source, refbuf_t *refbuf)
+{
+    if (refbuf->len == 0)
+        return;
+    if (fwrite (refbuf->data, 1, refbuf->len, source->dumpfile) < (size_t)refbuf->len)
+    {
+        WARN0 ("Write to dump file failed, disabling");
+        fclose (source->dumpfile);
+        source->dumpfile = NULL;
+    }
 }
 

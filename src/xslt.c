@@ -1,3 +1,15 @@
+/* Icecast
+ *
+ * This program is distributed under the GNU General Public License, version 2.
+ * A copy of this license is included with this source.
+ *
+ * Copyright 2000-2004, Jack Moffitt <jack@xiph.org, 
+ *                      Michael Smith <msmith@xiph.org>,
+ *                      oddsock <oddsock@xiph.org>,
+ *                      Karl Heyes <karl@xiph.org>
+ *                      and others (see AUTHORS for details).
+ */
+
 #ifdef HAVE_CONFIG_H
 #include <config.h>
 #endif
@@ -7,7 +19,6 @@
 #include <libxml/debugXML.h>
 #include <libxml/HTMLtree.h>
 #include <libxml/xmlIO.h>
-#include <libxml/DOCBparser.h>
 #include <libxml/xinclude.h>
 #include <libxml/catalog.h>
 #include <libxslt/xslt.h>
@@ -88,7 +99,7 @@ static int evict_cache_entry() {
     return oldest;
 }
 
-static xsltStylesheetPtr xslt_get_stylesheet(char *fn) {
+static xsltStylesheetPtr xslt_get_stylesheet(const char *fn) {
     int i;
     int empty = -1;
     struct stat file;
@@ -135,7 +146,7 @@ static xsltStylesheetPtr xslt_get_stylesheet(char *fn) {
     return cache[i].stylesheet;
 }
 
-void xslt_transform(xmlDocPtr doc, char *xslfilename, client_t *client)
+void xslt_transform(xmlDocPtr doc, const char *xslfilename, client_t *client)
 {
     xmlOutputBufferPtr outputBuffer;
     xmlDocPtr    res;

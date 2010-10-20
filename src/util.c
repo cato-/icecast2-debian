@@ -1,3 +1,15 @@
+/* Icecast
+ *
+ * This program is distributed under the GNU General Public License, version 2.
+ * A copy of this license is included with this source.
+ *
+ * Copyright 2000-2004, Jack Moffitt <jack@xiph.org, 
+ *                      Michael Smith <msmith@xiph.org>,
+ *                      oddsock <oddsock@xiph.org>,
+ *                      Karl Heyes <karl@xiph.org>
+ *                      and others (see AUTHORS for details).
+ */
+
 #ifdef HAVE_CONFIG_H
 #include <config.h>
 #endif
@@ -24,6 +36,7 @@
 #endif
 
 #include "net/sock.h"
+#include "thread/thread.h"
 
 #include "cfgfile.h"
 #include "util.h"
@@ -71,7 +84,7 @@ int util_timed_wait_for_fd(int fd, int timeout)
 #endif
 }
 
-int util_read_header(int sock, char *buff, unsigned long len)
+int util_read_header(int sock, char *buff, unsigned long len, int entire)
 {
     int read_bytes, ret;
     unsigned long pos;
@@ -94,9 +107,18 @@ int util_read_header(int sock, char *buff, unsigned long len)
 
             if ((read_bytes = recv(sock, &c, 1, 0))) {
                 if (c != '\r') buff[pos++] = c;
-                if ((pos > 1) && (buff[pos - 1] == '\n' && buff[pos - 2] == '\n')) {
-                    ret = 1;
-                    break;
+                if (entire) {
+                    if ((pos > 1) && (buff[pos - 1] == '\n' && 
+                                      buff[pos - 2] == '\n')) {
+                        ret = 1;
+                        break;
+                    }
+                }
+                else {
+                    if ((pos > 1) && (buff[pos - 1] == '\n')) {
+                        ret = 1;
+                        break;
+                    }
                 }
             }
         } else {
@@ -209,18 +231,17 @@ char *util_get_path_from_normalised_uri(char *uri) {
     ice_config_t *config = config_get_config();
 
     webroot = config->webroot_dir;
-    config_release_config();
 
     fullpath = malloc(strlen(uri) + strlen(webroot) + 1);
-    strcpy(fullpath, webroot);
-
-    strcat(fullpath, uri);
+    if (fullpath)
+        sprintf (fullpath, "%s%s", webroot, uri);
+    config_release_config();
 
     return fullpath;
 }
 
 static char hexchars[16] = {
-    '0','1','2','3','4','5','6','7','8','9','A','B','C','D','E','F'
+    '0','1','2','3','4','5','6','7','8','9','a','b','c','d','e','f'
 };
 
 static char safechars[256] = {
@@ -368,6 +389,21 @@ static signed char base64decode[256] = {
      -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2
 };
 
+char *util_bin_to_hex(unsigned char *data, int len)
+{
+    char *hex = malloc(len*2 + 1);
+    int i;
+
+    for(i = 0; i < len; i++) {
+        hex[i*2] = hexchars[(data[i]&0xf0) >> 4];
+        hex[i*2+1] = hexchars[data[i]&0x0f];
+    }
+
+    hex[len*2] = 0;
+
+    return hex;
+}
+
 /* This isn't efficient, but it doesn't need to be */
 char *util_base64_encode(char *data)
 {
@@ -422,6 +458,7 @@ char *util_base64_decode(unsigned char *input)
         vals[3] = base64decode[*input++];
 
         if(vals[0] < 0 || vals[1] < 0 || vals[2] < -1 || vals[3] < -1) {
+            len -= 4;
             continue;
         }
 
@@ -572,3 +609,22 @@ char *util_dict_urlencode(util_dict *dict, char delim)
     return res;
 }
 
+#ifndef HAVE_LOCALTIME_R
+struct tm *localtime_r (const time_t *timep, struct tm *result)
+{
+     static mutex_t localtime_lock;
+     static int initialised = 0;
+     struct tm *tm;
+
+     if (initialised == 0)
+     {
+         thread_mutex_create (&localtime_lock);
+         initialised = 1;
+     }
+     thread_mutex_lock (&localtime_lock);
+     tm = localtime (timep);
+     memcpy (result, tm, sizeof (*result));
+     thread_mutex_unlock (&localtime_lock);
+     return result;
+}
+#endif
