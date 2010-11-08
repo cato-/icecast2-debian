@@ -1,11 +1,13 @@
 Source: icecast2
 Section: sound
 Priority: optional
-Maintainer: Debian Icecast team <pkg-icecast-devel@lists.alioth.debian.org>
-Uploaders: Guillaume Pellerin <yomguy@altern.org>, Romain Beauxis <toots@rastageeks.org>, Jonas Smedegaard <dr@jones.dk>
+Maintainer: Debian Multimedia Maintainers <pkg-multimedia-maintainers@lists.alioth.debian.org>
+Uploaders: Guillaume Pellerin <yomguy@altern.org>,
+ Romain Beauxis <toots@rastageeks.org>,
+ Jonas Smedegaard <dr@jones.dk>
 Build-Depends: @cdbs@
-Vcs-Svn: svn://svn.debian.org/svn/pkg-icecast/icecast2/trunk
-Vcs-Browser: http://svn.debian.org/wsvn/pkg-icecast/icecast2/trunk
+Vcs-Git: git://git.debian.org/pkg-multimedia/icecast2.git
+Vcs-Browser: http://git.debian.org/?p=pkg-multimedia/icecast2.git
 Standards-Version: 3.8.3
 Homepage: http://www.icecast.org/
 
