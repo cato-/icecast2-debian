@@ -11,3 +11,8 @@ if [ -x /etc/init.d/icecast2 ]; then
 fi
 
 #DEBHELPER#
+
+# avoid "user icecast2 is currently logged in" when purged see Bug#605507
+sleep 1
+
+exit 0
