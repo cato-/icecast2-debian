@@ -2,14 +2,6 @@
 
 set -e
 
-if [ -x /etc/init.d/icecast2 ]; then
-	if [ -x /usr/sbin/invoke-rc.d ]; then
-		invoke-rc.d icecast2 stop
-	else
-		/etc/init.d/icecast2 stop
-	fi
-fi
-
 #DEBHELPER#
 
 # avoid "user icecast2 is currently logged in" when purged see Bug#605507
