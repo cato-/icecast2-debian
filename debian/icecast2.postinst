@@ -45,6 +45,9 @@ chmod -R ug=rw,o=r,ugo+X /etc/icecast2
 # Tightened permissions for the config file
 chmod -R ug=rw,o=,ug+X /etc/icecast2/icecast.xml
 
+# avoid to fail on invoke-rc.d icecast2 start when upgrading see Bug#605507
+sleep 3
+
 #DEBHELPER#
 
 exit 0
