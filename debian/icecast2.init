@@ -51,7 +51,8 @@ case "$1" in
 	;;
   stop)
 	echo -n "Stopping $DESC: "
-	start-stop-daemon --stop --oknodo --quiet --exec $DAEMON
+	# Send TERM after 5 seconds, wait at most 30 seconds.
+	start-stop-daemon --stop --oknodo --retry TERM/5/0/30 --quiet --exec $DAEMON
 	echo "$NAME."
 	;;
   reload|force-reload)
