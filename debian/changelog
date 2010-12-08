@@ -1,3 +1,16 @@
+icecast2 (2.3.2-6) unstable; urgency=medium
+
+  * Team upload.
+  * New Maintainer as the Icecast team is merging with Multimedia
+    Maintainers: update Vcs-* tags, add git-buildpackage config file.
+  * Prevent icecast2 to fail to reinstall/upgrade/purge (Closes: #605507):
+    - debian/icecast2.postinst:
+      + Avoid to fail on invoke-rc.d icecast2 start when upgrading.
+    - debian/icecast2.init:
+      + When stopping, send TERM after 5 seconds, wait at most 30 seconds.
+
+ -- Alessio Treglia <alessio@debian.org>  Wed, 08 Dec 2010 09:01:54 +0100
+
 icecast2 (2.3.2-5) unstable; urgency=high
 
   * Added patch to fix a memory leak. 
