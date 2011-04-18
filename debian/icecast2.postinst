@@ -3,8 +3,10 @@
 
 set -e
 
+. /usr/share/debconf/confmodule
+
 case "$1" in
-    configure)
+    configure|reconfigure)
 
     ;;
 
@@ -33,6 +35,37 @@ getent group icecast >/dev/null 2>&1 || \
 id icecast2 >/dev/null 2>&1 || \
 	adduser --system --quiet --disabled-password --disabled-login \
 	--home /usr/share/icecast2 --no-create-home --ingroup icecast icecast2
+
+# set passwords
+db_get icecast2/icecast-setup
+if test "$RET" = "true"; then
+	if [ -f /etc/default/icecast2 -a -f /etc/icecast2/icecast.xml ]; then
+		echo "Configuring icecast2.." >&2
+		cat << _EOF_ \
+		| ed /etc/default/icecast2 2>/dev/null 1>&2 || true
+%s/^.*ENABLE=.*$/ENABLE=true/
+wq
+_EOF_
+
+		db_get icecast2/sourcepassword
+		ICESOURCE=$RET
+		db_get icecast2/relaypassword
+		ICERELAY=$RET
+		db_get icecast2/adminpassword
+		ICEADMIN=$RET
+		db_get icecast2/hostname
+		ICEHOST=$RET
+		cat << _EOF_ \
+		| ed /etc/icecast2/icecast.xml 2>/dev/null 1>&2 || true
+%s/<source-password>[^<]*<\/source-password>/<source-password>$ICESOURCE<\/source-password>/
+%s/<relay-password>[^<]*<\/relay-password>/<relay-password>$ICERELAY<\/relay-password>/
+%s/<admin-password>[^<]*<\/admin-password>/<admin-password>$ICEADMIN<\/admin-password>/
+%s/<hostname>[^<]*<\/hostname>/<hostname>$ICEHOST<\/hostname>/
+wq
+_EOF_
+		echo "Done Configuring icecast2.." >&2
+	fi
+fi
 
 chown -R icecast2: /var/log/icecast2 /etc/icecast2
 # Set all file readable by default

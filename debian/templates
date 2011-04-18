@@ -1,0 +1,37 @@
+Template: icecast2/icecast-setup
+Type: boolean
+Default: false
+Description: Setup Icecast2 - Enable Live HTTP Streaming?
+ This option allows enable icecast2 on this server
+ and configure passwords for icecast-server.
+ .
+ If you have already manually tweaked icecast2 configuration
+ it may not work as expected.
+
+Template: icecast2/hostname
+Type: string
+Default: localhost
+Description: Icecast2 Hostname:
+ Specify a fully qualified domain name.
+ Icecast2 uses this as prefix to all streams.
+
+Template: icecast2/sourcepassword
+Type: string
+Default: hackme
+Description: Icecast2 Source Password:
+ Specify a password to send A/V sources to icecast
+
+Template: icecast2/relaypassword
+Type: string
+Default: hackme
+Description: Icecast2 Relay Password:
+ Specify the default password for stream relay access.
+
+Template: icecast2/adminpassword
+Type: string
+Default: hackme
+Description: Icecast2 Admin Password:
+ Specify the admin password. 
+ You can access icecast2's admin interface via
+ http://localhost:8000/ - and both monitor connection as
+ well as block users.
