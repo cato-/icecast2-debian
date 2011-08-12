@@ -1,3 +1,20 @@
+icecast2 (2.3.2-7) unstable; urgency=low
+
+  * Team upload.
+
+  [ Jonas Smedegaard ]
+  * Tidy user+group creation and removal.
+
+  [ Alessio Treglia ]
+  * Switch to source format 3.0 (quilt).
+  * Improve the short description, video streaming support was
+    not mentioned (Closes: #610830).
+  * Add config/templates/postinst configuration (Closes: #623256).
+    Thanks to Robin Gareus for the patch.
+  * Bump Standards.
+
+ -- Alessio Treglia <alessio@debian.org>  Fri, 12 Aug 2011 11:42:18 +0200
+
 icecast2 (2.3.2-6) unstable; urgency=medium
 
   * Team upload.
