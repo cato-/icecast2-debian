@@ -5,14 +5,13 @@ Maintainer: Debian Multimedia Maintainers <pkg-multimedia-maintainers@lists.alio
 Uploaders: Guillaume Pellerin <yomguy@altern.org>,
  Romain Beauxis <toots@rastageeks.org>,
  Jonas Smedegaard <dr@jones.dk>
-Build-Depends: autotools-dev,
+Build-Depends: cdbs (>= 0.4.39),
+ autotools-dev,
  devscripts (>= 2.10.7),
- quilt,
- patchutils (>= 0.2.25),
  libtool,
  automake1.10,
  autoconf,
- cdbs (>= 0.4.53),
+ cdbs (>= 0.4.85~),
  debhelper (>= 7.0.1),
  dh-buildinfo,
  libogg-dev (>> 1.0.0),
@@ -21,20 +20,22 @@ Build-Depends: autotools-dev,
  libxml2-dev,
  libcurl4-gnutls-dev,
  libtheora-dev (>= 0.0.0.alpha7),
- libspeex-dev
+ libspeex-dev,
+ po-debconf
 Vcs-Git: git://git.debian.org/pkg-multimedia/icecast2.git
 Vcs-Browser: http://git.debian.org/?p=pkg-multimedia/icecast2.git
-Standards-Version: 3.8.3
+Standards-Version: 3.9.2
 Homepage: http://www.icecast.org/
 
 Package: icecast2
 Architecture: any
 Depends: adduser, ${shlibs:Depends}, ${misc:Depends}
 Suggests: ices2
-Description: Ogg Vorbis and MP3 streaming media server
- Icecast is a streaming media server which currently supports Ogg 
- Vorbis and MP3 audio streams. It can be used to create an Internet 
- radio station or a privately running jukebox and many things in 
- between. It is very versatile in that new formats can be added 
- relatively easily and supports open standards for communication and 
+Description: streaming media server
+ Icecast is a streaming media server which currently supports Ogg
+ streaming including the Vorbis and Theora codecs. Icecast can also
+ handle other streams like MP3/AAC/NSV. It can be used to create an
+ Internet radio station or a privately running jukebox and many things
+ in between. It is very versatile in that new formats can be added
+ relatively easily and supports open standards for communication and
  interaction.
