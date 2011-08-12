@@ -15,7 +15,6 @@ ifneq (,$(DEB_MAINTAINER_MODE))
 endif
 include debian/cdbs/1/rules/upstream-tarball.mk
 include debian/cdbs/1/rules/copyright-check.mk
-include /usr/share/cdbs/1/rules/patchsys-quilt.mk
 include /usr/share/cdbs/1/class/autotools.mk
 include debian/cdbs/1/rules/buildinfo.mk
 include /usr/share/cdbs/1/rules/debhelper.mk
