@@ -43,7 +43,7 @@ common-binary-post-install-arch::
 
 # Upstream requirements
 #  Icecast is GPL so needs gnutls variant of CURL
-CDBS_BUILD_DEPENDS := $(CDBS_BUILD_DEPENDS), libogg-dev (>> 1.0.0), libvorbis-dev (>> 1.0.0), libxslt1-dev | libxslt-dev, libxml2-dev, libcurl4-gnutls-dev, libtheora-dev (>= 0.0.0.alpha7), libspeex-dev
+CDBS_BUILD_DEPENDS := $(CDBS_BUILD_DEPENDS), libogg-dev (>> 1.0.0), libvorbis-dev (>> 1.0.0), libxslt1-dev | libxslt-dev, libxml2-dev, libcurl4-gnutls-dev, libtheora-dev (>= 0.0.0.alpha7), libspeex-dev, po-debconf
 
 # Resolve, cleanup and apply CDBS-declared dependencies
 include debian/cdbs/1/rules/package-relations.mk
