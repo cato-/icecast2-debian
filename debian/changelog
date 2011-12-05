@@ -1,3 +1,30 @@
+icecast2 (2.3.2-8) unstable; urgency=low
+
+  [ Alessio Treglia ]
+  * Team upload.
+  * debian/icecast2.1: Escape minus sign "-".
+  * Fix lintian's debian-news-entry-uses-asterisk warning.
+
+  [ Christian Perrier ]
+  * Debconf templates and debian/control reviewed by the debian-l10n-
+    english team as part of the Smith review project. Closes: #640085
+  * [Debconf translation updates]
+  * Debconf templates and debian/control reviewed by the debian-l10n-
+    english team as part of the Smith review project. Closes: #640085
+  * [Debconf translation updates]
+  * Vietnamese (Hung Tran).  Closes: #640674
+  * Swedish (Martin Bagge / brother).  Closes: #640708
+  * Russian (Yuri Kozlov).  Closes: #641026
+  * French (Julien Patriarca).  Closes: #641142
+  * Portuguese (Rui Branco).  Closes: #641159, #641158
+  * German (Erik Pfannenstein).  Closes: #641048
+  * Spanish; (SM Baby Siabef).  Closes: #642067
+  * Dutch; (Jeroen Schot).  Closes: #642289
+  * Czech (Michal Simunek).  Closes: #642332
+  * Danish (Joe Hansen).  Closes: #642334
+
+ -- Alessio Treglia <alessio@debian.org>  Mon, 05 Dec 2011 13:00:17 +0100
+
 icecast2 (2.3.2-7) unstable; urgency=low
 
   * Team upload.
