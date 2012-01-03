@@ -67,6 +67,9 @@ _EOF_
 	fi
 fi
 
+# Tell debconf we're done, so it doesn't get confused when we start the daemon.
+db_stop
+
 chown -R icecast2: /var/log/icecast2 /etc/icecast2
 # Set all file readable by default
 chmod -R ug=rw,o=r,ugo+X /etc/icecast2
