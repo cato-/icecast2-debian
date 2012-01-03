@@ -1,9 +1,10 @@
 icecast2 (2.3.2-9) unstable; urgency=medium
 
+  * Team upload.
   * Call db_stop before starting icecast2 in postinst.
     Thanks to Julien Cristau for the patch. (Closes: #639751)
 
- -- Alessio Treglia <alessio@debian.org>  Tue, 03 Jan 2012 01:41:46 +0100
+ -- Alessio Treglia <alessio@debian.org>  Tue, 03 Jan 2012 01:42:12 +0100
 
 icecast2 (2.3.2-8) unstable; urgency=low
 
