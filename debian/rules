@@ -6,17 +6,9 @@ DEB_AUTO_UPDATE_LIBTOOL = pre
 DEB_AUTO_UPDATE_ACLOCAL = 1.10
 DEB_AUTO_UPDATE_AUTOMAKE = 1.10
 DEB_AUTO_UPDATE_AUTOCONF = 2.60
-
-# See debian/README.cdbs-tweaks for info on local overrides
-ifneq (,$(DEB_MAINTAINER_MODE))
-  # Enable stuff not policy compliant (eg. unsuitable for build daemons)
-  DEB_COPYRIGHT_CHECK_STRICT = yes
-  DEB_AUTO_UPDATE_DEBIAN_CONTROL = yes
-endif
-include debian/cdbs/1/rules/upstream-tarball.mk
-include debian/cdbs/1/rules/copyright-check.mk
+include /usr/share/cdbs/1/rules/upstream-tarball.mk
+include /usr/share/cdbs/1/rules/utils.mk
 include /usr/share/cdbs/1/class/autotools.mk
-include debian/cdbs/1/rules/buildinfo.mk
 include /usr/share/cdbs/1/rules/debhelper.mk
 
 DEB_UPSTREAM_PACKAGE = icecast
@@ -43,7 +35,8 @@ common-binary-post-install-arch::
 
 # Upstream requirements
 #  Icecast is GPL so needs gnutls variant of CURL
-CDBS_BUILD_DEPENDS := $(CDBS_BUILD_DEPENDS), libogg-dev (>> 1.0.0), libvorbis-dev (>> 1.0.0), libxslt1-dev | libxslt-dev, libxml2-dev, libcurl4-gnutls-dev, libtheora-dev (>= 0.0.0.alpha7), libspeex-dev, po-debconf
-
-# Resolve, cleanup and apply CDBS-declared dependencies
-include debian/cdbs/1/rules/package-relations.mk
+CDBS_BUILD_DEPENDS += , libogg-dev (>> 1.0.0), libvorbis-dev (>> 1.0.0)
+CDBS_BUILD_DEPENDS += , libxslt1-dev | libxslt-dev, libxml2-dev
+CDBS_BUILD_DEPENDS += , libcurl4-gnutls-dev
+CDBS_BUILD_DEPENDS += , libtheora-dev (>= 0.0.0.alpha7), libspeex-dev
+CDBS_BUILD_DEPENDS += , po-debconf
