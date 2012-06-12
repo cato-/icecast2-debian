@@ -339,9 +339,6 @@ BOOL CIcecast2winDlg::OnInitDialog()
 	sprintf(version, "Icecast2 Version %s", ICECAST_VERSION);
 	SetWindowText(version);
 
-    xslt_initialize();
-    curl_global_init (CURL_GLOBAL_ALL);
-
 	if (m_Autostart) {
 		OnStart();
 	}
@@ -545,7 +542,7 @@ void StartStats(void *dummy)
 
 			xmlDocPtr doc;
 
-			stats_get_xml(&doc, 0, NULL);
+			doc = stats_get_xml(0, NULL);
 			xmlNodePtr cur;
 		    cur = xmlDocGetRootElement(doc); 
 
@@ -1205,3 +1202,8 @@ void CIcecast2winDlg::OnAboutCredits()
 	CAboutDlg	about;
 	about.DoModal();
 }
+
+void CIcecast2winDlg::OnCancel()
+{
+}
+

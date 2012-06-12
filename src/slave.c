@@ -190,7 +190,7 @@ static client_t *open_relay_connection (relay_server *relay)
 
         INFO2 ("connecting to %s:%d", server, port);
 
-        streamsock = sock_connect_wto (server, port, 10);
+        streamsock = sock_connect_wto_bind (server, port, relay->bind, 10);
         if (streamsock == SOCK_ERROR)
         {
             WARN2 ("Failed to connect to %s:%d", server, port);
@@ -205,11 +205,13 @@ static client_t *open_relay_connection (relay_server *relay)
          */
         sock_write(streamsock, "GET %s HTTP/1.0\r\n"
                 "User-Agent: %s\r\n"
+                "Host: %s\r\n"
                 "%s"
                 "%s"
                 "\r\n",
                 mount,
                 server_id,
+                server,
                 relay->mp3metadata?"Icy-MetaData: 1\r\n":"",
                 auth_header);
         memset (header, 0, sizeof(header));
@@ -277,7 +279,7 @@ static client_t *open_relay_connection (relay_server *relay)
                 break;
             }
             global_unlock ();
-            sock_set_blocking (streamsock, SOCK_NONBLOCK);
+            sock_set_blocking (streamsock, 0);
             client_set_queue (client, NULL);
             free (server);
             free (mount);
@@ -367,6 +369,7 @@ static void *start_relay_stream (void *arg)
     source_clear_source (relay->source);
 
     /* cleanup relay, but prevent this relay from starting up again too soon */
+    relay->source->on_demand = 0;
     relay->start = time(NULL) + max_interval;
     relay->cleanup = 1;
 
@@ -391,10 +394,25 @@ static void check_relay_stream (relay_server *relay)
         {
             DEBUG1("Adding relay source at mountpoint \"%s\"", relay->localmount);
             if (relay->on_demand)
+            {
+                ice_config_t *config = config_get_config ();
+                mount_proxy *mountinfo = config_find_mount (config, relay->localmount);
+                if (mountinfo == NULL)
+                    source_update_settings (config, relay->source, mountinfo);
+                config_release_config ();
+                stats_event (relay->localmount, "listeners", "0");
                 slave_update_all_mounts();
+            }
         }
         else
-            WARN1 ("new relay but source \"%s\" already exists", relay->localmount);
+        {
+            if (relay->start == 0)
+            {
+                WARN1 ("new relay but source \"%s\" already exists", relay->localmount);
+                relay->start = 1;
+            }
+            return;
+        }
     }
     do
     {
@@ -600,7 +618,7 @@ static int update_from_master(ice_config_t *config)
         on_demand = config->on_demand;
         ret = 1;
         config_release_config();
-        mastersock = sock_connect_wto (master, port, 0);
+        mastersock = sock_connect_wto (master, port, 10);
 
         if (mastersock == SOCK_ERROR)
         {

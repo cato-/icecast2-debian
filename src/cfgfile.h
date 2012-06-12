@@ -8,6 +8,7 @@
  *                      oddsock <oddsock@xiph.org>,
  *                      Karl Heyes <karl@xiph.org>
  *                      and others (see AUTHORS for details).
+ * Copyright 2011,      Dave 'justdave' Miller <justdave@mozilla.com>.
  */
 
 #ifndef __CFGFILE_H__
@@ -101,6 +102,7 @@ typedef struct _aliases {
 typedef struct _listener_t {
     struct _listener_t *next;
     int port;
+    int so_sndbuf;
     char *bind_address;
     int shoutcast_compat;
     char *shoutcast_mount;
@@ -160,6 +162,7 @@ typedef struct ice_config_tag
     char *banfile;
     char *allowfile;
     char *cert_file;
+    char *cipher_list;
     char *webroot_dir;
     char *adminroot_dir;
     aliases *aliases;

@@ -8,6 +8,8 @@
  *                      oddsock <oddsock@xiph.org>,
  *                      Karl Heyes <karl@xiph.org>
  *                      and others (see AUTHORS for details).
+ * Copyright 2011,      Philipp "ph3-der-loewe" Schafft <lion@lion.leolix.org>,
+ *                      Dave 'justdave' Miller <justdave@mozilla.com>.
  */
 
 /* -*- c-basic-offset: 4; indent-tabs-mode: nil; -*- */
@@ -103,16 +105,12 @@ typedef struct
     avl_tree *contents;
 } cache_file_contents;
 
-static mutex_t _connection_mutex;
+static spin_t _connection_lock;
 static volatile unsigned long _current_id = 0;
 static int _initialized = 0;
-static thread_type *tid;
 
 static volatile client_queue_t *_req_queue = NULL, **_req_queue_tail = &_req_queue;
 static volatile client_queue_t *_con_queue = NULL, **_con_queue_tail = &_con_queue;
-static mutex_t _con_queue_mutex;
-static mutex_t _req_queue_mutex;
-
 static int ssl_ok;
 #ifdef HAVE_OPENSSL
 static SSL_CTX *ssl_ctx;
@@ -123,7 +121,7 @@ cache_file_contents banned_ip, allowed_ip;
 
 rwlock_t _source_shutdown_rwlock;
 
-static void *_handle_connection(void *arg);
+static void _handle_connection(void);
 
 static int compare_ip (void *arg, void *a, void *b)
 {
@@ -145,9 +143,7 @@ void connection_initialize(void)
 {
     if (_initialized) return;
     
-    thread_mutex_create(&_connection_mutex);
-    thread_mutex_create(&_con_queue_mutex);
-    thread_mutex_create(&_req_queue_mutex);
+    thread_spin_create (&_connection_lock);
     thread_mutex_create(&move_clients_mutex);
     thread_rwlock_create(&_source_shutdown_rwlock);
     thread_cond_create(&global.shutdown_cond);
@@ -177,9 +173,7 @@ void connection_shutdown(void)
  
     thread_cond_destroy(&global.shutdown_cond);
     thread_rwlock_destroy(&_source_shutdown_rwlock);
-    thread_mutex_destroy(&_con_queue_mutex);
-    thread_mutex_destroy(&_req_queue_mutex);
-    thread_mutex_destroy(&_connection_mutex);
+    thread_spin_destroy (&_connection_lock);
     thread_mutex_destroy(&move_clients_mutex);
 
     _initialized = 0;
@@ -189,9 +183,9 @@ static unsigned long _next_connection_id(void)
 {
     unsigned long id;
 
-    thread_mutex_lock(&_connection_mutex);
+    thread_spin_lock (&_connection_lock);
     id = _current_id++;
-    thread_mutex_unlock(&_connection_mutex);
+    thread_spin_unlock (&_connection_lock);
 
     return id;
 }
@@ -201,6 +195,7 @@ static unsigned long _next_connection_id(void)
 static void get_ssl_certificate (ice_config_t *config)
 {
     SSL_METHOD *method;
+    long ssl_opts;
     ssl_ok = 0;
 
     SSL_load_error_strings();                /* readable error messages */
@@ -208,12 +203,14 @@ static void get_ssl_certificate (ice_config_t *config)
 
     method = SSLv23_server_method();
     ssl_ctx = SSL_CTX_new (method);
+    ssl_opts = SSL_CTX_get_options (ssl_ctx);
+    SSL_CTX_set_options (ssl_ctx, ssl_opts|SSL_OP_NO_SSLv2);
 
     do
     {
         if (config->cert_file == NULL)
             break;
-        if (SSL_CTX_use_certificate_file (ssl_ctx, config->cert_file, SSL_FILETYPE_PEM) <= 0)
+        if (SSL_CTX_use_certificate_chain_file (ssl_ctx, config->cert_file) <= 0)
         {
             WARN1 ("Invalid cert file %s", config->cert_file);
             break;
@@ -228,8 +225,13 @@ static void get_ssl_certificate (ice_config_t *config)
             ERROR1 ("Invalid %s - Private key does not match cert public key", config->cert_file);
             break;
         }
+        if (SSL_CTX_set_cipher_list(ssl_ctx, config->cipher_list) <= 0) 
+        { 
+            WARN1 ("Invalid cipher list: %s", config->cipher_list); 
+        } 
         ssl_ok = 1;
         INFO1 ("SSL certificate found at %s", config->cert_file);
+        INFO1 ("SSL using ciphers %s", config->cipher_list); 
         return;
     } while (0);
     INFO0 ("No SSL capability on any configured ports");
@@ -521,12 +523,12 @@ static sock_t wait_for_serversock(int timeout)
 #endif
 }
 
-static connection_t *_accept_connection(void)
+static connection_t *_accept_connection(int duration)
 {
-    sock_t sock, serversock; 
+    sock_t sock, serversock;
     char *ip;
 
-    serversock = wait_for_serversock(100);
+    serversock = wait_for_serversock (duration);
     if (serversock == SOCK_ERROR)
         return NULL;
 
@@ -566,10 +568,8 @@ static connection_t *_accept_connection(void)
  */
 static void _add_connection (client_queue_t *node)
 {
-    thread_mutex_lock (&_con_queue_mutex);
     *_con_queue_tail = node;
     _con_queue_tail = (volatile client_queue_t **)&node->next;
-    thread_mutex_unlock (&_con_queue_mutex);
 }
 
 
@@ -583,12 +583,10 @@ static client_queue_t *_get_connection(void)
     /* common case, no new connections so don't bother taking locks */
     if (_con_queue)
     {
-        thread_mutex_lock (&_con_queue_mutex);
         node = (client_queue_t *)_con_queue;
         _con_queue = node->next;
         if (_con_queue == NULL)
             _con_queue_tail = &_con_queue;
-        thread_mutex_unlock (&_con_queue_mutex);
         node->next = NULL;
     }
     return node;
@@ -664,12 +662,10 @@ static void process_request_queue (void)
 
             if (pass_it)
             {
-                thread_mutex_lock (&_req_queue_mutex);
                 if ((client_queue_t **)_req_queue_tail == &(node->next))
                     _req_queue_tail = (volatile client_queue_t **)node_ref;
                 *node_ref = node->next;
                 node->next = NULL;
-                thread_mutex_unlock (&_req_queue_mutex);
                 _add_connection (node);
                 continue;
             }
@@ -678,11 +674,9 @@ static void process_request_queue (void)
         {
             if (len == 0 || client->con->error)
             {
-                thread_mutex_lock (&_req_queue_mutex);
                 if ((client_queue_t **)_req_queue_tail == &node->next)
                     _req_queue_tail = (volatile client_queue_t **)node_ref;
                 *node_ref = node->next;
-                thread_mutex_unlock (&_req_queue_mutex);
                 client_destroy (client);
                 free (node);
                 continue;
@@ -690,6 +684,7 @@ static void process_request_queue (void)
         }
         node_ref = &node->next;
     }
+    _handle_connection();
 }
 
 
@@ -698,27 +693,24 @@ static void process_request_queue (void)
  */
 static void _add_request_queue (client_queue_t *node)
 {
-    thread_mutex_lock (&_req_queue_mutex);
     *_req_queue_tail = node;
     _req_queue_tail = (volatile client_queue_t **)&node->next;
-    thread_mutex_unlock (&_req_queue_mutex);
 }
 
 
-void connection_accept_loop(void)
+void connection_accept_loop (void)
 {
     connection_t *con;
     ice_config_t *config;
+    int duration = 300;
 
     config = config_get_config ();
     get_ssl_certificate (config);
     config_release_config ();
 
-    tid = thread_create ("connection thread", _handle_connection, NULL, THREAD_ATTACHED);
-
     while (global.running == ICE_RUNNING)
     {
-        con = _accept_connection();
+        con = _accept_connection (duration);
 
         if (con)
         {
@@ -736,14 +728,22 @@ void connection_accept_loop(void)
                 thread_sleep (400000);
                 continue;
             }
-            global_unlock();
 
             /* setup client for reading incoming http */
             client->refbuf->data [PER_CLIENT_REFBUF_SIZE-1] = '\000';
 
+            if (sock_set_blocking (client->con->sock, 0) || sock_set_nodelay (client->con->sock))
+            {
+                global_unlock();
+                WARN0 ("failed to set tcp options on client connection, dropping");
+                client_destroy (client);
+                continue;
+            }
+
             node = calloc (1, sizeof (client_queue_t));
             if (node == NULL)
             {
+                global_unlock();
                 client_destroy (client);
                 continue;
             }
@@ -761,22 +761,23 @@ void connection_accept_loop(void)
                 if (listener->shoutcast_mount)
                     node->shoutcast_mount = strdup (listener->shoutcast_mount);
             }
+            global_unlock();
             config_release_config();
-
-            sock_set_blocking (client->con->sock, SOCK_NONBLOCK);
-            sock_set_nodelay (client->con->sock);
 
             _add_request_queue (node);
             stats_event_inc (NULL, "connections");
+            duration = 5;
+        }
+        else
+        {
+            if (_req_queue == NULL)
+                duration = 300; /* use longer timeouts when nothing waiting */
         }
         process_request_queue ();
     }
 
     /* Give all the other threads notification to shut down */
     thread_cond_broadcast(&global.shutdown_cond);
-
-    if (tid)
-        thread_join (tid);
 
     /* wait for all the sources to shutdown */
     thread_rwlock_wlock(&_source_shutdown_rwlock);
@@ -789,11 +790,12 @@ void connection_accept_loop(void)
  */
 int connection_complete_source (source_t *source, int response)
 {
-    ice_config_t *config = config_get_config();
+    ice_config_t *config;
 
     global_lock ();
     DEBUG1 ("sources count is %d", global.sources);
 
+    config = config_get_config();
     if (global.sources < config->source_limit)
     {
         const char *contenttype;
@@ -808,8 +810,8 @@ int connection_complete_source (source_t *source, int response)
 
             if (format_type == FORMAT_ERROR)
             {
-                global_unlock();
                 config_release_config();
+                global_unlock();
                 if (response)
                 {
                     client_send_403 (source->client, "Content-type not supported");
@@ -976,29 +978,17 @@ int connection_check_relay_pass(http_parser_t *parser)
     return ret;
 }
 
-int connection_check_source_pass(http_parser_t *parser, const char *mount)
+
+/* return 0 for failed, 1 for ok
+ */
+int connection_check_pass (http_parser_t *parser, const char *user, const char *pass)
 {
-    ice_config_t *config = config_get_config();
-    char *pass = config->source_password;
-    char *user = "source";
     int ret;
-    int ice_login = config->ice_login;
     const char *protocol;
-
-    mount_proxy *mountinfo = config_find_mount (config, mount);
-
-    if (mountinfo)
-    {
-        if (mountinfo->password)
-            pass = mountinfo->password;
-        if (mountinfo->username)
-            user = mountinfo->username;
-    }
 
     if(!pass) {
         WARN0("No source password set, rejecting source");
-        config_release_config();
-        return 0;
+        return -1;
     }
 
     protocol = httpp_getvar(parser, HTTPP_VAR_PROTOCOL);
@@ -1007,22 +997,24 @@ int connection_check_source_pass(http_parser_t *parser, const char *mount)
     }
     else {
         ret = _check_pass_http(parser, user, pass);
-        if(!ret && ice_login)
+        if (!ret)
         {
-            ret = _check_pass_ice(parser, pass);
-            if(ret)
-                WARN0("Source is using deprecated icecast login");
+            ice_config_t *config = config_get_config_unlocked();
+            if (config->ice_login)
+            {
+                ret = _check_pass_ice(parser, pass);
+                if(ret)
+                    WARN0("Source is using deprecated icecast login");
+            }
         }
     }
-    config_release_config();
     return ret;
 }
 
 
-static void _handle_source_request (client_t *client, char *uri, int auth_style)
+/* only called for native icecast source clients */
+static void _handle_source_request (client_t *client, const char *uri)
 {
-    source_t *source;
-
     INFO1("Source logging in at mountpoint \"%s\"", uri);
 
     if (uri[0] != '/')
@@ -1031,24 +1023,30 @@ static void _handle_source_request (client_t *client, char *uri, int auth_style)
         client_send_401 (client);
         return;
     }
-    if (auth_style == ICECAST_SOURCE_AUTH) {
-        if (connection_check_source_pass (client->parser, uri) == 0)
-        {
-            /* We commonly get this if the source client is using the wrong
-             * protocol: attempt to diagnose this and return an error
-             */
-            /* TODO: Do what the above comment says */
+    switch (client_check_source_auth (client, uri))
+    {
+        case 0: /* authenticated from config file */
+            source_startup (client, uri, ICECAST_SOURCE_AUTH);
+            break;
+
+        case 1: /* auth pending */
+            break;
+
+        default: /* failed */
             INFO1("Source (%s) attempted to login with invalid or missing password", uri);
             client_send_401(client);
-            return;
-        }
+            break;
     }
+}
+
+
+void source_startup (client_t *client, const char *uri, int auth_style)
+{
+    source_t *source;
     source = source_reserve (uri);
+
     if (source)
     {
-        if (auth_style == SHOUTCAST_SOURCE_AUTH) {
-            source->shoutcast_compat = 1;
-        }
         source->client = client;
         source->parser = client->parser;
         source->con = client->con;
@@ -1056,6 +1054,13 @@ static void _handle_source_request (client_t *client, char *uri, int auth_style)
         {
             source_clear_source (source);
             source_free_source (source);
+            return;
+        }
+        client->respcode = 200;
+        if (auth_style == SHOUTCAST_SOURCE_AUTH)
+        {
+            source->shoutcast_compat = 1;
+            source_client_callback (client, source);
         }
         else
         {
@@ -1173,7 +1178,12 @@ static void _handle_shoutcast_compatible (client_queue_t *node)
         if (mountinfo && mountinfo->password)
             source_password = strdup (mountinfo->password);
         else
-            source_password = strdup (config->source_password);
+        {
+            if (config->source_password) 
+                source_password = strdup (config->source_password);
+            else
+                source_password = NULL;
+        }
         config_release_config();
 
         /* Get rid of trailing \r\n or \n after password */
@@ -1203,7 +1213,7 @@ static void _handle_shoutcast_compatible (client_queue_t *node)
         }
         *ptr = '\0';
 
-        if (strcmp (client->refbuf->data, source_password) == 0)
+        if (source_password && strcmp (client->refbuf->data, source_password) == 0)
         {
             client->respcode = 200;
             /* send this non-blocking but if there is only a partial write
@@ -1249,7 +1259,7 @@ static void _handle_shoutcast_compatible (client_queue_t *node)
             memmove (ptr, ptr + node->stream_offset, client->refbuf->len);
         }
         client->parser = parser;
-        _handle_source_request (client, shoutcast_mount, SHOUTCAST_SOURCE_AUTH);
+        source_startup (client, shoutcast_mount, SHOUTCAST_SOURCE_AUTH);
     }
     else {
         httpp_destroy (parser);
@@ -1267,21 +1277,21 @@ static void _handle_shoutcast_compatible (client_queue_t *node)
  * the contents provided. We set up the parser then hand off to the specific
  * request handler.
  */
-static void *_handle_connection(void *arg)
+static void _handle_connection(void)
 {
     http_parser_t *parser;
     const char *rawuri;
+    client_queue_t *node;
 
-    while (global.running == ICE_RUNNING) {
-
-        client_queue_t *node = _get_connection();
-
+    while (1)
+    {
+        node = _get_connection();
         if (node)
         {
             client_t *client = node->client;
 
             /* Check for special shoutcast compatability processing */
-            if (node->shoutcast) 
+            if (node->shoutcast)
             {
                 _handle_shoutcast_compatible (node);
                 continue;
@@ -1313,7 +1323,7 @@ static void *_handle_connection(void *arg)
 
                 free (node->shoutcast_mount);
                 free (node);
-                
+
                 if (strcmp("ICE",  httpp_getvar(parser, HTTPP_VAR_PROTOCOL)) &&
                     strcmp("HTTP", httpp_getvar(parser, HTTPP_VAR_PROTOCOL))) {
                     ERROR0("Bad HTTP protocol detected");
@@ -1330,7 +1340,7 @@ static void *_handle_connection(void *arg)
                 }
 
                 if (parser->req_type == httpp_req_source) {
-                    _handle_source_request (client, uri, ICECAST_SOURCE_AUTH);
+                    _handle_source_request (client, uri);
                 }
                 else if (parser->req_type == httpp_req_stats) {
                     _handle_stats_request (client, uri);
@@ -1353,11 +1363,8 @@ static void *_handle_connection(void *arg)
             }
             continue;
         }
-        thread_sleep (50000);
+        break;
     }
-    DEBUG0 ("Connection thread done");
-
-    return NULL;
 }
 
 
@@ -1412,7 +1419,10 @@ int connection_setup_sockets (ice_config_t *config)
                 sock_close (sock);
                 break;
             }
-            sock_set_blocking (sock, SOCK_NONBLOCK);
+            /* some win32 setups do not do TCP win scaling well, so allow an override */
+            if (listener->so_sndbuf)
+                sock_set_send_buffer (sock, listener->so_sndbuf);
+            sock_set_blocking (sock, 0);
             successful = 1;
             global.serversock [count] = sock;
             count++;

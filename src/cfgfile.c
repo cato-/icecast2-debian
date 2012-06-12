@@ -8,6 +8,9 @@
  *                      oddsock <oddsock@xiph.org>,
  *                      Karl Heyes <karl@xiph.org>
  *                      and others (see AUTHORS for details).
+ * Copyright 2011,      Philipp "ph3-der-loewe" Schafft <lion@lion.leolix.org>,
+ *                      Thomas B. "dm8tbr" Ruecker <thomas.rucker@tieto.com>,
+ *                      Dave 'justdave' Miller <justdave@mozilla.com>.
  */
 
 #ifdef HAVE_CONFIG_H
@@ -37,8 +40,6 @@
 #define CONFIG_DEFAULT_CLIENT_TIMEOUT 30
 #define CONFIG_DEFAULT_HEADER_TIMEOUT 15
 #define CONFIG_DEFAULT_SOURCE_TIMEOUT 10
-#define CONFIG_DEFAULT_SOURCE_PASSWORD "changeme"
-#define CONFIG_DEFAULT_RELAY_PASSWORD "changeme"
 #define CONFIG_DEFAULT_MASTER_USERNAME "relay"
 #define CONFIG_DEFAULT_SHOUTCAST_MOUNT "/stream"
 #define CONFIG_DEFAULT_ICE_LOGIN 0
@@ -55,6 +56,7 @@
 #define CONFIG_DEFAULT_GROUP NULL
 #define CONFIG_MASTER_UPDATE_INTERVAL 120
 #define CONFIG_YP_URL_TIMEOUT 10
+#define CONFIG_DEFAULT_CIPHER_LIST "ALL:!aNULL:!ADH:!eNULL:!LOW:!EXP:RC4+RSA:+HIGH:+MEDIUM"
 
 #ifndef _WIN32
 #define CONFIG_DEFAULT_BASE_DIR "/usr/local/icecast"
@@ -191,6 +193,7 @@ void config_clear(ice_config_t *c)
     if (c->webroot_dir) xmlFree(c->webroot_dir);
     if (c->adminroot_dir) xmlFree(c->adminroot_dir);
     if (c->cert_file) xmlFree(c->cert_file);
+    if (c->cipher_list) xmlFree(c->cipher_list);
     if (c->pidfile)
         xmlFree(c->pidfile);
     if (c->banfile) xmlFree(c->banfile);
@@ -348,7 +351,7 @@ static void _set_defaults(ice_config_t *configuration)
     configuration->client_timeout = CONFIG_DEFAULT_CLIENT_TIMEOUT;
     configuration->header_timeout = CONFIG_DEFAULT_HEADER_TIMEOUT;
     configuration->source_timeout = CONFIG_DEFAULT_SOURCE_TIMEOUT;
-    configuration->source_password = (char *)xmlCharStrdup (CONFIG_DEFAULT_SOURCE_PASSWORD);
+    configuration->source_password = NULL;
     configuration->shoutcast_mount = (char *)xmlCharStrdup (CONFIG_DEFAULT_SHOUTCAST_MOUNT);
     configuration->ice_login = CONFIG_DEFAULT_ICE_LOGIN;
     configuration->fileserve = CONFIG_DEFAULT_FILESERVE;
@@ -364,6 +367,7 @@ static void _set_defaults(ice_config_t *configuration)
     configuration->master_password = NULL;
     configuration->base_dir = (char *)xmlCharStrdup (CONFIG_DEFAULT_BASE_DIR);
     configuration->log_dir = (char *)xmlCharStrdup (CONFIG_DEFAULT_LOG_DIR);
+    configuration->cipher_list = (char *)xmlCharStrdup (CONFIG_DEFAULT_CIPHER_LIST);
     configuration->webroot_dir = (char *)xmlCharStrdup (CONFIG_DEFAULT_WEBROOT_DIR);
     configuration->adminroot_dir = (char *)xmlCharStrdup (CONFIG_DEFAULT_ADMINROOT_DIR);
     configuration->playlist_log = (char *)xmlCharStrdup (CONFIG_DEFAULT_PLAYLIST_LOG);
@@ -775,6 +779,10 @@ static void _parse_relay(xmlDocPtr doc, xmlNodePtr node,
             relay->on_demand = atoi(tmp);
             if (tmp) xmlFree(tmp);
         }
+        else if (xmlStrcmp (node->name, XMLSTR("bind")) == 0) {
+            if (relay->bind) xmlFree (relay->bind);
+            relay->bind = (char *)xmlNodeListGetString (doc, node->xmlChildrenNode, 1);
+        }
     } while ((node = node->next));
     if (relay->localmount == NULL)
         relay->localmount = (char *)xmlStrdup (XMLSTR(relay->mount));
@@ -820,6 +828,11 @@ static void _parse_listen_socket(xmlDocPtr doc, xmlNodePtr node,
             if (listener->bind_address) xmlFree (listener->bind_address);
             listener->bind_address = (char *)xmlNodeListGetString(doc, 
                     node->xmlChildrenNode, 1);
+        }
+        else if (xmlStrcmp (node->name, XMLSTR("so-sndbuf")) == 0) {
+            tmp = (char *)xmlNodeListGetString(doc, node->xmlChildrenNode, 1);
+            listener->so_sndbuf = atoi(tmp);
+            if(tmp) xmlFree(tmp);
         }
     } while ((node = node->next));
 
@@ -951,6 +964,9 @@ static void _parse_paths(xmlDocPtr doc, xmlNodePtr node,
         } else if (xmlStrcmp (node->name, XMLSTR("ssl-certificate")) == 0) {
             if (configuration->cert_file) xmlFree(configuration->cert_file);
             configuration->cert_file = (char *)xmlNodeListGetString(doc, node->xmlChildrenNode, 1);
+        } else if (xmlStrcmp (node->name, XMLSTR("ssl-allowed-ciphers")) == 0) {
+            if (configuration->cipher_list) xmlFree(configuration->cipher_list);
+            configuration->cipher_list = (char *)xmlNodeListGetString(doc, node->xmlChildrenNode, 1);
         } else if (xmlStrcmp (node->name, XMLSTR("webroot")) == 0) {
             if (configuration->webroot_dir) xmlFree(configuration->webroot_dir);
             configuration->webroot_dir = (char *)xmlNodeListGetString(doc, node->xmlChildrenNode, 1);
@@ -970,7 +986,9 @@ static void _parse_paths(xmlDocPtr doc, xmlNodePtr node,
                 free(alias);
                 continue;
             }
-            alias->destination = (char *)xmlGetProp(node, XMLSTR("dest"));
+            alias->destination = (char *)xmlGetProp(node, XMLSTR("destination"));
+            if (!alias->destination)
+                alias->destination = (char *)xmlGetProp(node, XMLSTR("dest"));
             if(alias->destination == NULL) {
                 xmlFree(alias->source);
                 free(alias);
@@ -1136,7 +1154,6 @@ listener_t *config_get_listen_sock (ice_config_t *config, connection_t *con)
     int i = 0;
 
     listener = config->listen_sock;
-    global_lock();
     while (listener)
     {
         if (i >= global.server_sockets)
@@ -1149,7 +1166,6 @@ listener_t *config_get_listen_sock (ice_config_t *config, connection_t *con)
             i++;
         }
     }
-    global_unlock();
     return listener;
 }
 
