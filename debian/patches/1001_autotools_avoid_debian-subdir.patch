@@ -1,7 +1,9 @@
-Index: icecast2-2.3.2/Makefile.am
-===================================================================
---- icecast2-2.3.2.orig/Makefile.am	2007-11-20 03:38:17.000000000 +0100
-+++ icecast2-2.3.2/Makefile.am	2009-07-31 03:01:27.000000000 +0200
+Description: Avoid autotools messing with debian subdir
+Author: Jonas Smedegaard <dr@jones.dk>
+Last-Update: 2006-08-19
+
+--- a/Makefile.am
++++ b/Makefile.am
 @@ -3,7 +3,7 @@
  AUTOMAKE_OPTIONS = foreign dist-zip
  ACLOCAL_AMFLAGS = -I m4
@@ -11,10 +13,8 @@ Index: icecast2-2.3.2/Makefile.am
  
  EXTRA_DIST = HACKING m4/acx_pthread.m4 m4/ogg.m4 \
      m4/theora.m4 m4/vorbis.m4 m4/speex.m4 \
-Index: icecast2-2.3.2/configure.in
-===================================================================
---- icecast2-2.3.2.orig/configure.in	2008-05-27 02:21:38.000000000 +0200
-+++ icecast2-2.3.2/configure.in	2009-07-31 03:01:27.000000000 +0200
+--- a/configure.in
++++ b/configure.in
 @@ -150,7 +150,7 @@
  AC_SUBST(HAVE_KATE)
  AC_SUBST(KATE_LIBS)
