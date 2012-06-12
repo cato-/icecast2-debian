@@ -344,9 +344,11 @@ void admin_handle_request(client_t *client, const char *uri)
             client_send_400 (client, "missing pass parameter");
             return;
         }
+        global_lock();
         config = config_get_config ();
         sc_mount = config->shoutcast_mount;
         listener = config_get_listen_sock (config, client->con);
+
         if (listener && listener->shoutcast_mount)
             sc_mount = listener->shoutcast_mount;
 
@@ -354,6 +356,7 @@ void admin_handle_request(client_t *client, const char *uri)
         httpp_setvar (client->parser, HTTPP_VAR_PROTOCOL, "ICY");
         httpp_setvar (client->parser, HTTPP_VAR_ICYPASSWORD, pass);
         config_release_config ();
+        global_unlock();
     }
 
     mount = httpp_get_query_param(client->parser, "mount");
@@ -368,17 +371,22 @@ void admin_handle_request(client_t *client, const char *uri)
             return;
         }
         /* This is a mount request, handle it as such */
-        if (!connection_check_admin_pass(client->parser))
+        if (client->authenticated == 0 && !connection_check_admin_pass(client->parser))
         {
-            if (!connection_check_source_pass(client->parser, mount))
+            switch (client_check_source_auth (client, mount))
             {
-                INFO1("Bad or missing password on mount modification admin "
-                        "request (command: %s)", command_string);
-                client_send_401(client);
-                return;
+                case 0:
+                    break;
+                default:
+                    INFO1("Bad or missing password on mount modification admin "
+                            "request (command: %s)", command_string);
+                    client_send_401(client);
+                    /* fall through */
+                case 1:
+                    return;
             }
         }
-        
+
         avl_tree_rlock(global.source_tree);
         source = source_find_mount_raw(mount);
 
@@ -887,6 +895,7 @@ static void command_metadata(client_t *client, source_t *source,
     format_plugin_t *plugin;
     xmlDocPtr doc;
     xmlNodePtr node;
+    int same_ip = 1;
 
     doc = xmlNewDoc (XMLSTR("1.0"));
     node = xmlNewDocNode (doc, NULL, XMLSTR("iceresponse"), NULL);
@@ -911,8 +920,11 @@ static void command_metadata(client_t *client, source_t *source,
     }
 
     plugin = source->format;
+    if (source->client && strcmp (client->con->ip, source->client->con->ip) != 0)
+        if (response == RAW && connection_check_admin_pass (client->parser) == 0)
+            same_ip = 0;
 
-    if (plugin && plugin->set_tag)
+    if (same_ip && plugin && plugin->set_tag)
     {
         if (song)
         {
@@ -929,6 +941,8 @@ static void command_metadata(client_t *client, source_t *source,
                         source->mount, artist, title);
             }
         }
+        /* updates are now done, let them be pushed into the stream */
+        plugin->set_tag (plugin, NULL, NULL, NULL);
     }
     else
     {
@@ -952,6 +966,7 @@ static void command_shoutcast_metadata(client_t *client, source_t *source)
 {
     const char *action;
     const char *value;
+    int same_ip = 1;
 
     DEBUG0("Got shoutcast metadata update request");
 
@@ -963,10 +978,14 @@ static void command_shoutcast_metadata(client_t *client, source_t *source)
         client_send_400 (client, "No such action");
         return;
     }
+    if (source->client && strcmp (client->con->ip, source->client->con->ip) != 0)
+        if (connection_check_admin_pass (client->parser) == 0)
+            same_ip = 0;
 
-    if (source->format && source->format->set_tag)
+    if (same_ip && source->format && source->format->set_tag)
     {
         source->format->set_tag (source->format, "title", value, NULL);
+        source->format->set_tag (source->format, NULL, NULL, NULL);
 
         DEBUG2("Metadata on mountpoint %s changed to \"%s\"", 
                 source->mount, value);
@@ -983,7 +1002,7 @@ static void command_stats(client_t *client, const char *mount, int response) {
 
     DEBUG0("Stats request, sending xml stats");
 
-    stats_get_xml(&doc, 1, mount);
+    doc = stats_get_xml(1, mount);
     admin_send_response(doc, client, response, STATS_TRANSFORMED_REQUEST);
     xmlFreeDoc(doc);
     return;

@@ -193,9 +193,11 @@ int source_compare_sources(void *arg, void *a, void *b)
 
 void source_clear_source (source_t *source)
 {
+    int c;
+
     DEBUG1 ("clearing source \"%s\"", source->mount);
 
-    avl_tree_wlock (source->client_tree);
+    avl_tree_wlock (source->pending_tree);
     client_destroy(source->client);
     source->client = NULL;
     source->parser = NULL;
@@ -212,23 +214,34 @@ void source_clear_source (source_t *source)
         source->dumpfile = NULL;
     }
 
-    if (source->listeners)
-        stats_event_sub (NULL, "listeners", source->listeners);
-
     /* lets kick off any clients that are left on here */
-    while (avl_get_first (source->client_tree))
+    avl_tree_wlock (source->client_tree);
+    c=0;
+    while (1)
     {
-        avl_delete (source->client_tree,
-                avl_get_first (source->client_tree)->key, _free_client);
+        avl_node *node = avl_get_first (source->client_tree);
+        if (node)
+        {
+            client_t *client = node->key;
+            if (client->respcode == 200)
+                c++; /* only count clients that have had some processing */
+            avl_delete (source->client_tree, client, _free_client);
+            continue;
+        }
+        break;
     }
+    if (c)
+    {
+        stats_event_sub (NULL, "listeners", source->listeners);
+        INFO2 ("%d active listeners on %s released", c, source->mount);
+    }
+    avl_tree_unlock (source->client_tree);
 
-    avl_tree_wlock (source->pending_tree);
     while (avl_get_first (source->pending_tree))
     {
         avl_delete (source->pending_tree,
                 avl_get_first(source->pending_tree)->key, _free_client);
     }
-    avl_tree_unlock (source->pending_tree);
 
     if (source->format && source->format->free_plugin)
         source->format->free_plugin (source->format);
@@ -239,6 +252,7 @@ void source_clear_source (source_t *source)
     {
         refbuf_t *p = source->stream_data;
         source->stream_data = p->next;
+        p->next = NULL;
         /* can be referenced by burst handler as well */
         while (p->_count > 1)
             refbuf_release (p);
@@ -273,7 +287,7 @@ void source_clear_source (source_t *source)
     }
 
     source->on_demand_req = 0;
-    avl_tree_unlock (source->client_tree);
+    avl_tree_unlock (source->pending_tree);
 }
 
 
@@ -337,22 +351,23 @@ void source_move_clients (source_t *source, source_t *dest)
 
     /* if the destination is not running then we can't move clients */
 
+    avl_tree_wlock (dest->pending_tree);
     if (dest->running == 0 && dest->on_demand == 0)
     {
         WARN1 ("destination mount %s not running, unable to move clients ", dest->mount);
+        avl_tree_unlock (dest->pending_tree);
         thread_mutex_unlock (&move_clients_mutex);
         return;
     }
 
-    avl_tree_wlock (dest->pending_tree);
     do
     {
         client_t *client;
 
         /* we need to move the client and pending trees - we must take the
          * locks in this order to avoid deadlocks */
-        avl_tree_wlock (source->client_tree);
         avl_tree_wlock (source->pending_tree);
+        avl_tree_wlock (source->client_tree);
 
         if (source->on_demand == 0 && source->format == NULL)
         {
@@ -706,6 +721,9 @@ void source_main (source_t *source)
         if (source->queue_size > source->queue_size_limit)
             remove_from_q = 1;
 
+        /* acquire write lock on pending_tree */
+        avl_tree_wlock(source->pending_tree);
+
         /* acquire write lock on client_tree */
         avl_tree_wlock(source->client_tree);
 
@@ -717,17 +735,15 @@ void source_main (source_t *source)
 
             if (client->con->error) {
                 client_node = avl_get_next(client_node);
+                if (client->respcode == 200)
+                    stats_event_dec (NULL, "listeners");
                 avl_delete(source->client_tree, (void *)client, _free_client);
                 source->listeners--;
-                stats_event_dec (NULL, "listeners");
                 DEBUG0("Client removed");
                 continue;
             }
             client_node = avl_get_next(client_node);
         }
-
-        /* acquire write lock on pending_tree */
-        avl_tree_wlock(source->pending_tree);
 
         /** add pending clients **/
         client_node = avl_get_first(source->pending_tree);
@@ -806,6 +822,7 @@ void source_main (source_t *source)
                 }
                 source->stream_data = to_go->next;
                 source->queue_size -= to_go->len;
+                to_go->next = NULL;
                 refbuf_release (to_go);
             }
         }
@@ -1225,7 +1242,7 @@ void *source_client_thread (void *arg)
     source_main (source);
 
     source_free_source (source);
-    slave_rebuild_mounts();
+    slave_update_all_mounts();
 
     return NULL;
 }
@@ -1363,10 +1380,12 @@ static void *source_fallback_file (void *arg)
  */
 void source_recheck_mounts (int update_all)
 {
-    ice_config_t *config = config_get_config();
-    mount_proxy *mount = config->mounts;
+    ice_config_t *config;
+    mount_proxy *mount;
 
     avl_tree_rlock (global.source_tree);
+    config = config_get_config();
+    mount = config->mounts;
 
     if (update_all)
         stats_clear_virtual_mounts ();

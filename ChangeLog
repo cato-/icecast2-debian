@@ -1,3 +1,47 @@
+2011-11-26 11:11  ph3-der-loewe
+
+	* trunk/icecast/admin/Makefile.am: Added vclt.xsl to list
+	  of files which are to be installed.
+
+2011-11-26 02:36  ph3-der-loewe
+
+	* trunk/icecast/src/fserve.c, trunk/icecast/admin/vclt.xsl,
+	  trunk/icecast/web/status.xsl: Added VCLT playlist support.
+
+2011-11-25 22:37  dm8tbr
+
+	* trunk/icecast/conf/icecast.xml.in:
+	  Added 'admin' and 'location' to default config, thus fixing
+	  #1839.
+
+2011-11-25 22:17  ph3-der-loewe
+
+	* trunk/icecast/src/cfgfile.c, trunk/icecast/conf/icecast.xml.in,
+	  trunk/icecast/conf/icecast_urlauth.xml.in,
+	  trunk/icecast/conf/icecast_minimal.xml.in: Updated <alias>
+	  to use destination="" not dest="". The old dest="" attribute
+	  is still supported.
+
+2011-11-25 22:11  dm8tbr
+
+	* trunk/icecast/src/cfgfile.c trunk/icecast/src/cfgfile.h
+	  trunk/icecast/src/connection.c:
+	  Applied justdave's patches, fixing #1717 and #1718.
+	  HTTPS now with better security and support for chained
+	  certificates.
+
+2011-11-25 21:20  ph3-der-loewe
+
+	* trunk/icecast/AUTHORS, trunk/icecast/src/cfgfile.c.
+	  trunk/icecast/src/connection.c: Allow the source password
+	  to be undefined. This is to avoid falling back to a default
+	  password which would be a security problem. Fixing #1846
+
+----------------------------------------------------------------------
+	Everything above is post 2.3.2. The stuff below is incomplete.
+	The time zone above is UTC, the time zone below is unknown.
+	ph3-der-loewe, Fri Nov 25 21:20:58 UTC 2011
+----------------------------------------------------------------------
 2005-11-29 03:06  karl
 
 	* trunk/icecast/src/auth_url.c: update for authentication header
