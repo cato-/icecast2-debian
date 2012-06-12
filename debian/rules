@@ -21,7 +21,7 @@ include /usr/share/cdbs/1/rules/debhelper.mk
 
 DEB_UPSTREAM_PACKAGE = icecast
 DEB_UPSTREAM_URL = http://downloads.xiph.org/releases/icecast/
-DEB_UPSTREAM_TARBALL_MD5 = ff516b3ccd2bcc31e68f460cd316093f
+DEB_UPSTREAM_TARBALL_MD5 = 2b5d1b40778922e5f6431b7758c359ad
 
 DEB_CONFIGURE_SYSCONFDIR = /etc/icecast2
 DEB_CONFIGURE_EXTRA_FLAGS = --program-transform-name="s/icecast$$/icecast2/"
