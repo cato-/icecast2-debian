@@ -8,7 +8,7 @@ Uploaders: Guillaume Pellerin <yomguy@altern.org>,
 Build-Depends: @cdbs@
 Vcs-Git: git://git.debian.org/pkg-multimedia/icecast2.git
 Vcs-Browser: http://git.debian.org/?p=pkg-multimedia/icecast2.git
-Standards-Version: 3.9.2
+Standards-Version: 3.9.3
 Homepage: http://www.icecast.org/
 
 Package: icecast2
