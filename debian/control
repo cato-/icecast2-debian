@@ -5,14 +5,13 @@ Maintainer: Debian Multimedia Maintainers <pkg-multimedia-maintainers@lists.alio
 Uploaders: Guillaume Pellerin <yomguy@altern.org>,
  Romain Beauxis <toots@rastageeks.org>,
  Jonas Smedegaard <dr@jones.dk>
-Build-Depends: cdbs (>= 0.4.39),
+Build-Depends: cdbs (>= 0.4.70~),
  autotools-dev,
- devscripts (>= 2.10.7),
+ devscripts,
  libtool,
  automake1.10,
  autoconf,
- cdbs (>= 0.4.85~),
- debhelper (>= 7.0.1),
+ debhelper,
  dh-buildinfo,
  libogg-dev (>> 1.0.0),
  libvorbis-dev (>> 1.0.0),
@@ -24,7 +23,7 @@ Build-Depends: cdbs (>= 0.4.39),
  po-debconf
 Vcs-Git: git://git.debian.org/pkg-multimedia/icecast2.git
 Vcs-Browser: http://git.debian.org/?p=pkg-multimedia/icecast2.git
-Standards-Version: 3.9.2
+Standards-Version: 3.9.3
 Homepage: http://www.icecast.org/
 
 Package: icecast2

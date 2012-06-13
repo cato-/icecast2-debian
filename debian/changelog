@@ -1,3 +1,22 @@
+icecast2 (2.3.3-1) UNRELEASED; urgency=low
+
+  * New upstream source.
+
+  * Setup git-import-orig to filter out debian subdir.
+  * Drop patches 1002 and 1003, applied upstream.
+  * Unfuzz patch 1001, and add DEP3 header.
+  * Remove debian/source/local-options: abort-on-upstream-changes and
+    unapply-patches are default in dpkg-source since 1.16.1.
+  * Drop obsolete NEWS file: Latest news more than 8 years ago.
+  * Modernize CDBS usage: Drop locally shipped snippets. Reorganize CDBS
+    usage in rules file. Drop obsolete README.cdbs-tweaks.
+  * Extend copyright years for packaging, and add proper licensing header
+    to rules file.
+  * Rewrite copyright file, using DEP5 format.
+  * Bump standards-version to 3.9.3.
+
+ -- Jonas Smedegaard <dr@jones.dk>  Wed, 13 Jun 2012 02:21:01 +0200
+
 icecast2 (2.3.2-9) unstable; urgency=medium
 
   * Team upload.
