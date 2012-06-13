@@ -367,7 +367,6 @@ License: GPL-2+
 
 Files: debian/rules
 Copyright: 2003-2009, 2012 Jonas
-  2004-2008, Jonas Smedegaard <dr@jones.dk>
 License: GPL-2+
  FIXME
 
@@ -416,19 +415,6 @@ Files: src/md5.c
 Copyright: 2000-2004, Jack Moffitt <jack@xiph.org
   is claimed
 License: Public domain
- FIXME
-
-Files: win32/running.bmp
-Copyright: ıı º.™'PEIVËıı5ˆ
-  ııPE5ˆ
-  W4PEııııııııııııııııııııııııı5ˆ
-  k ºıIVBfııIVPEı ºkııık ºı5ˆ
-License: UNKNOWN
- FIXME
-
-Files: doc/windowtitle.jpg
-Copyright: .e¸ÊG;j"0BÖ±­n@Lÿ jö¸Ä)ğóÖ§j'šS½._è7Ï6Iù´ğóÖ§j'šOK—úóÍ’~m<<õÚƒ‰æ“Òåşƒ|ódŸ›O=jv ây¤ô¹ ß<Ù'æÓÃÏZ¨8i=._è7Ï6Iù´ğóÖ§j'šOK—úóÍ’~m<<õÚƒ‰æ“Òåşƒ|ódŸ›O=jv ây¤ô¹ ß<Ù'æÓÃÏZ¨8i=._è7Ï6Iù´ğóÖ§j'šOK—úóÍ’~m<<õÚƒ‰æ“Òåşƒ|ódŸ›O=jv ây¤ô¹ ß<Ù'æÓÃÏZ¨8i=._è7Ï6Iù´ğóÖ§j'šZËİêEÅö–ŠÉyEºA–g’Û-µä^HÜ«•¼¬0­r²°éÓjtm^•Uµ´èÕ;SæîhÓxÒ¶åäñdµã8jö<dEG1ís®kš¹\Õ¬c»N•;P·Í-†l–Ûd{fåŒ{KĞğ®¬¶‘ÒÒK†AI5@@òXyCÌêä7$ÙÉğóÖ§j'šZÈ›rÙË 1wZ
-License: UNKNOWN
  FIXME
 
 Files: src/cfgfile.h
@@ -485,21 +471,6 @@ License: UNKNOWN
 
 Files: debian/TODO.Debian
 Copyright: with newer release:
-License: UNKNOWN
- FIXME
-
-Files: doc/listener_auth2.jpg
-Copyright: ²·.‡d¹ºª†ï},¶¼´±ûvúnõ}vÀ±fuÏªÙ'Œ›«¹ùEå­¯wóM°Ñ
-License: UNKNOWN
- FIXME
-
-Files: doc/stats1.jpg
-Copyright: ¨n1.$|ªÇt«FåQÌ£L2(Z=ìÀ×`fH±»ã1Næêòî›4àíY«¯Øñûİİg/kŠñÎ\¼-ÉÆÑK{`ÃlØ{.í¹ğàÂ‡·cFÖaÎO,Ôğ­ä½WµxbgÙ¢ª;UU
-License: UNKNOWN
- FIXME
-
-Files: examples/icecast_auth-1.0.tar.gz
-Copyright: Âø¡¼àŞ¶ÉA7<0bFàÒœ¹µg KuíÒtÉ²É±J*NàC›¡3šç²ÄoQ¿c¹Õ¨«ıYkœ)N<ˆ¡¼«¿2>ú"â/z2­éÙÅ1­O>Û¶z¯[V¿­vÕSÌ™ªmoóÆïaƒHLiqvº{”*CÜız÷2’‰âÇ­Z	ÂØ¡— NªàÙè{#i¯¬’!Tƒbå\kƒé‡\šîDÖ+ç.×ü%MÑ1¢…•£OçÌ‡Lş¤´ë‘èT::R»®PAYâ
 License: UNKNOWN
  FIXME
 
