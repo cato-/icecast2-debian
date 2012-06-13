@@ -30,6 +30,9 @@ DEB_UPSTREAM_PACKAGE = icecast
 DEB_UPSTREAM_URL = http://downloads.xiph.org/releases/icecast/
 DEB_UPSTREAM_TARBALL_MD5 = 2b5d1b40778922e5f6431b7758c359ad
 
+# suppress check of some images (in addition to defaults)
+DEB_COPYRIGHT_CHECK_IGNORE_REGEX = ^(win32/running\.bmp|doc/(listener_auth2|stats1|windowtitle|)\.jpg|debian/(changelog|copyright(|_hints|_newhints)))$
+
 DEB_CONFIGURE_SYSCONFDIR = /etc/icecast2
 DEB_CONFIGURE_EXTRA_FLAGS = --program-transform-name="s/icecast$$/icecast2/"
 DEB_MAKE_INVOKE += PACKAGE=icecast2 docdir=/usr/share/doc/icecast2 pkgdatadir=/usr/share/icecast2
