@@ -6,7 +6,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: icecast2 2.3.2-9\n"
 "Report-Msgid-Bugs-To: icecast2@packages.debian.org\n"
-"POT-Creation-Date: 2011-09-06 07:02+0200\n"
+"POT-Creation-Date: 2012-08-30 08:29-0400\n"
 "PO-Revision-Date: 2011-09-09 18:47+0400\n"
 "Last-Translator: Yuri Kozlov <yuray@komyakino.ru>\n"
 "Language-Team: Russian <debian-l10n-russian@lists.debian.org>\n"
@@ -17,6 +17,28 @@ msgstr ""
 "X-Generator: Lokalize 1.0\n"
 "Plural-Forms: nplurals=3; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && n"
 "%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2);\n"
+
+#. Type: boolean
+#. Description
+#: ../templates:2001
+msgid "Configure Icecast2?"
+msgstr ""
+
+#. Type: boolean
+#. Description
+#: ../templates:2001
+msgid ""
+"Choose this option to set up passwords for Icecast2. Until these are "
+"configured the server will not be activated."
+msgstr ""
+
+#. Type: boolean
+#. Description
+#: ../templates:2001
+msgid ""
+"You should not use this option if you have already manually tweaked the "
+"configuration of Icecast2."
+msgstr ""
 
 #. Type: string
 #. Description
