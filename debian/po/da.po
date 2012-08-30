@@ -1,14 +1,14 @@
 # Danish translation icecast2.
-# Copyright (C) 2011 icecast2 & nedenstående oversættere.
+# Copyright (C) 2012 icecast2 & nedenstående oversættere.
 # This file is distributed under the same license as the icecast2 package.
-# Joe Hansen <joedalton2@yahoo.dk>, 2011.
+# Joe Hansen <joedalton2@yahoo.dk>, 2011, 2012.
 #
 msgid ""
 msgstr ""
 "Project-Id-Version: icecast2\n"
 "Report-Msgid-Bugs-To: icecast2@packages.debian.org\n"
 "POT-Creation-Date: 2012-08-30 08:29-0400\n"
-"PO-Revision-Date: 2011-09-21 17:30+01:00\n"
+"PO-Revision-Date: 2012-08-30 17:30+01:00\n"
 "Last-Translator: Joe Hansen <joedalton2@yahoo.dk>\n"
 "Language-Team: Danish <debian-l10n-danish@lists.debian.org> \n"
 "Language: \n"
@@ -20,7 +20,7 @@ msgstr ""
 #. Description
 #: ../templates:2001
 msgid "Configure Icecast2?"
-msgstr ""
+msgstr "Konfigurer Icecast2?"
 
 #. Type: boolean
 #. Description
@@ -29,6 +29,8 @@ msgid ""
 "Choose this option to set up passwords for Icecast2. Until these are "
 "configured the server will not be activated."
 msgstr ""
+"Vælg denne indstilling for at opsætte adgangskoder for Icecast2. Indtil "
+"disse er konfigureret vil serveren ikke være aktiveret."
 
 #. Type: boolean
 #. Description
@@ -37,6 +39,8 @@ msgid ""
 "You should not use this option if you have already manually tweaked the "
 "configuration of Icecast2."
 msgstr ""
+"Du skal ikke bruge denne indstilling, hvis du allerede manuelt har "
+"justeret konfigurationen af Icecast2."
 
 #. Type: string
 #. Description
