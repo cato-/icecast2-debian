@@ -10,7 +10,7 @@
 Template: icecast2/icecast-setup
 Type: boolean
 Default: false
-Description: Configure Icecast2?
+_Description: Configure Icecast2?
  Choose this option to set up passwords for Icecast2. Until these are
  configured the server will not be activated.
  .
