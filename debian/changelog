@@ -8,6 +8,7 @@ icecast2 (2.3.2-9+deb7u1) UNRELEASED; urgency=low
   * Danish, Joe Hansen. Closes: #686288
   * Vietnamese, Nguyễn Vũ Hưng.
   * Swedish, Martin Bagge. Closes: #686444
+  * French, David Prévot. 
 
  -- David Prévot <taffit@debian.org>  Tue, 04 Sep 2012 22:40:54 -0400
 
