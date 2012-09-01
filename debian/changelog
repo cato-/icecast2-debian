@@ -29,6 +29,7 @@ icecast2 (2.3.3-2) UNRELEASED; urgency=low
   * Danish, Joe Hansen. Closes: #686288
   * Vietnamese, Nguyễn Vũ Hưng.
   * Swedish, Martin Bagge. Closes: #686444
+  * French, David Prévot. 
 
  -- Jonas Smedegaard <dr@jones.dk>  Wed, 13 Jun 2012 02:21:01 +0200
 
