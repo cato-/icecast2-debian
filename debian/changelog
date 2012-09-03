@@ -10,6 +10,7 @@ icecast2 (2.3.2-9+deb7u1) UNRELEASED; urgency=low
   * Swedish, Martin Bagge. Closes: #686444
   * French, David Prévot. 
   * Portuguese, Rui Branco. Closes: #686530
+  * German, Erik Pfannenstein. Closes: #686591 
 
  -- David Prévot <taffit@debian.org>  Tue, 04 Sep 2012 22:40:54 -0400
 
