@@ -1,14 +1,14 @@
 # Czech PO debconf template translation of icecast2.
-# Copyright (C) 2010 Michal Simunek <michal.simunek@gmail.com>
+# Copyright (C) 2012 Michal Simunek <michal.simunek@gmail.com>
 # This file is distributed under the same license as the icecast2 package.
-# Michal Simunek <michal.simunek@gmail.com>, 2011.
+# Michal Simunek <michal.simunek@gmail.com>, 2011 - 2012.
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: icecast2 2.3.2-9\n"
+"Project-Id-Version: icecast2 2.3.3-2\n"
 "Report-Msgid-Bugs-To: icecast2@packages.debian.org\n"
 "POT-Creation-Date: 2012-08-30 08:29-0400\n"
-"PO-Revision-Date: 2011-09-21 17:31+0200\n"
+"PO-Revision-Date: 2012-09-03 17:31+0200\n"
 "Last-Translator: Michal Simunek <michal.simunek@gmail.com>\n"
 "Language-Team: Czech <debian-l10n-czech@lists.debian.org>\n"
 "Language: cs\n"
@@ -20,7 +20,7 @@ msgstr ""
 #. Description
 #: ../templates:2001
 msgid "Configure Icecast2?"
-msgstr ""
+msgstr "Nastavit Icecast2?"
 
 #. Type: boolean
 #. Description
@@ -29,6 +29,8 @@ msgid ""
 "Choose this option to set up passwords for Icecast2. Until these are "
 "configured the server will not be activated."
 msgstr ""
+"Tuto možnost zvolte, mají-li se nastavit hesla pro Icecast2. Server "
+"nebude aktivován, dokud tato hesla nebudou nastavena."
 
 #. Type: boolean
 #. Description
@@ -37,6 +39,8 @@ msgid ""
 "You should not use this option if you have already manually tweaked the "
 "configuration of Icecast2."
 msgstr ""
+"Tuto možnost nepoužívejte, pokud jste si již nastavení Icecast2 ručně "
+"vyladili."
 
 #. Type: string
 #. Description
