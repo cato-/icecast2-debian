@@ -12,6 +12,7 @@ icecast2 (2.3.2-9+deb7u1) UNRELEASED; urgency=low
   * Portuguese, Rui Branco. Closes: #686530
   * German, Erik Pfannenstein. Closes: #686591 
   * Polish, Michał Kułach. Closes: #686596
+  * Czech, Michal Simunek. Closes: #686607
 
  -- David Prévot <taffit@debian.org>  Tue, 04 Sep 2012 22:40:54 -0400
 
