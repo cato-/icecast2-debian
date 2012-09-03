@@ -31,6 +31,7 @@ icecast2 (2.3.3-2) UNRELEASED; urgency=low
   * Swedish, Martin Bagge. Closes: #686444
   * French, David Prévot. 
   * Portuguese, Rui Branco. Closes: #686530
+  * German, Erik Pfannenstein. Closes: #686591 
 
  -- Jonas Smedegaard <dr@jones.dk>  Wed, 13 Jun 2012 02:21:01 +0200
 
