@@ -1,14 +1,14 @@
 # Dutch translation of icecast2 debconf templates.
-# Copyright (C) 2011 THE PACKAGE'S COPYRIGHT HOLDER
+# Copyright (C) 2011, 2012 THE PACKAGE'S COPYRIGHT HOLDER
 # This file is distributed under the same license as the icecast2 package.
-# Jeroen Schot <schot@a-eskwadraat.nl>, 2011.
+# Jeroen Schot <schot@a-eskwadraat.nl>, 2011, 2012.
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: icecast2 2.3.2-9\n"
+"Project-Id-Version: icecast2 2.3.3-2\n"
 "Report-Msgid-Bugs-To: icecast2@packages.debian.org\n"
 "POT-Creation-Date: 2012-08-30 08:29-0400\n"
-"PO-Revision-Date: 2011-09-16 17:27+0200\n"
+"PO-Revision-Date: 2012-09-03 16:45+0200\n"
 "Last-Translator: Jeroen Schot <schot@a-eskwadraat.nl>\n"
 "Language-Team: Debian l10n Dutch <debian-l10n-dutch@lists.debian.org>\n"
 "Language: nl\n"
@@ -20,7 +20,7 @@ msgstr ""
 #. Description
 #: ../templates:2001
 msgid "Configure Icecast2?"
-msgstr ""
+msgstr "Icecast2 configureren?"
 
 #. Type: boolean
 #. Description
@@ -29,6 +29,8 @@ msgid ""
 "Choose this option to set up passwords for Icecast2. Until these are "
 "configured the server will not be activated."
 msgstr ""
+"Kies voor deze optie om wachtwoorden in te stellen voor Icecast2. De server "
+"zal niet worden geactiveerd totdat deze geconfigureerd zijn."
 
 #. Type: boolean
 #. Description
@@ -37,6 +39,8 @@ msgid ""
 "You should not use this option if you have already manually tweaked the "
 "configuration of Icecast2."
 msgstr ""
+"Indien u de configuratie van Icecast2 al handmatig heeft aangepast moet u "
+"deze optie niet kiezen."
 
 #. Type: string
 #. Description
