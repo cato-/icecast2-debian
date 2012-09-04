@@ -36,6 +36,7 @@ icecast2 (2.3.3-2) UNRELEASED; urgency=low
   * Czech, Michal Simunek. Closes: #686607
   * Italian, Beatrice Torracca. Closes: #686691
   * Dutch, Jeroen Schot. Closes: #686659
+  * Brazilian Portuguese, Adriano Rafael Gomes. Closes: #686716
 
  -- Jonas Smedegaard <dr@jones.dk>  Wed, 13 Jun 2012 02:21:01 +0200
 

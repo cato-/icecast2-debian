@@ -1,14 +1,14 @@
 # Debconf translations for icecast2.
 # Copyright (C) 2011 THE icecast2'S COPYRIGHT HOLDER
 # This file is distributed under the same license as the icecast2 package.
-# Adriano Rafael Gomes <adrianorg@gmail.com>, 2011.
+# Adriano Rafael Gomes <adrianorg@gmail.com>, 2011, 2012.
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: icecast2\n"
+"Project-Id-Version: icecast2 2.3.3-2\n"
 "Report-Msgid-Bugs-To: icecast2@packages.debian.org\n"
 "POT-Creation-Date: 2012-08-30 08:29-0400\n"
-"PO-Revision-Date: 2011-12-06 22:00-0200\n"
+"PO-Revision-Date: 2012-08-30 19:36-0300\n"
 "Last-Translator: Adriano Rafael Gomes <adrianorg@gmail.com>\n"
 "Language-Team: Brazilian Portuguese <debian-l10n-portuguese@lists.debian."
 "org>\n"
@@ -21,7 +21,7 @@ msgstr ""
 #. Description
 #: ../templates:2001
 msgid "Configure Icecast2?"
-msgstr ""
+msgstr "Configurar o Icecast2?"
 
 #. Type: boolean
 #. Description
@@ -30,6 +30,8 @@ msgid ""
 "Choose this option to set up passwords for Icecast2. Until these are "
 "configured the server will not be activated."
 msgstr ""
+"Escolha essa opção para configurar as senhas para o Icecast2. O servidor não "
+"será ativado até que as senhas sejam configuradas."
 
 #. Type: boolean
 #. Description
@@ -38,6 +40,8 @@ msgid ""
 "You should not use this option if you have already manually tweaked the "
 "configuration of Icecast2."
 msgstr ""
+"Você não deve usar essa opção se você já tiver editado manualmente a "
+"configuração do Icecast2."
 
 #. Type: string
 #. Description
@@ -53,7 +57,7 @@ msgid ""
 "to all streams."
 msgstr ""
 "Por favor, especifique o nome de domínio totalmente qualificado que deve ser "
-"usado como prefixo para todos os streams."
+"usado como prefixo para todas as transmissões."
 
 #. Type: string
 #. Description
@@ -75,7 +79,7 @@ msgstr ""
 #. Description
 #: ../templates:5001
 msgid "Icecast2 relay password:"
-msgstr "Senha de relay do Icecast2:"
+msgstr "Senha de \"relay\" do Icecast2:"
 
 #. Type: string
 #. Description
@@ -85,7 +89,7 @@ msgid ""
 "Icecast2's stream relays."
 msgstr ""
 "Por favor, especifique a senha que deve ser usada para controlar o acesso "
-"aos relays de stream do Icecast2."
+"aos \"relays\" de transmissão do Icecast2."
 
 #. Type: string
 #. Description
@@ -110,4 +114,4 @@ msgid ""
 "monitor connections or to block users from streaming."
 msgstr ""
 "A interface web de administração, em http://localhost:8000, pode ser usada "
-"para monitorar conexões ou para bloquear usuários de fazerem streaming."
+"para monitorar conexões ou para bloquear usuários de fazerem transmissões."
