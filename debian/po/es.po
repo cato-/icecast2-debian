@@ -27,24 +27,28 @@
 # /usr/share/doc/po-debconf/README-trans
 # o http://www.debian.org/intl/l10n/po-debconf/README-trans
 #
+# Rafael Ernesto Rivas <tato@debian.org.sv>, 2012.
+#
 msgid ""
 msgstr ""
 "Project-Id-Version: icecast2 2.3.2-9\n"
 "Report-Msgid-Bugs-To: icecast2@packages.debian.org\n"
 "POT-Creation-Date: 2012-08-30 08:29-0400\n"
-"PO-Revision-Date: 2011-09-06 16:47+0100\n"
-"Last-Translator: SM Baby Siabef <siabef.debian@gmail.com>\n"
-"Language-Team: Debian Spanish <debian-l10n-spanish@lists.debian.org>\n"
+"PO-Revision-Date: 2012-09-04 19:06-0600\n"
+"Last-Translator: Rafael Ernesto Rivas <tato@debian.org.sv>\n"
+"Language-Team: Spanish <debian-l10n-spanish@lists.debian.org>\n"
 "Language: ES \n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+"X-Generator: Gtranslator 2.91.5\n"
 
 #. Type: boolean
 #. Description
 #: ../templates:2001
 msgid "Configure Icecast2?"
-msgstr ""
+msgstr "¿Configurar Icecast2?"
 
 #. Type: boolean
 #. Description
@@ -53,6 +57,8 @@ msgid ""
 "Choose this option to set up passwords for Icecast2. Until these are "
 "configured the server will not be activated."
 msgstr ""
+"Seleccione esta opción para establecer las contraseñas para Icecast2. Hasta "
+"que estas sea configuradas, no se podrá activar el servidor."
 
 #. Type: boolean
 #. Description
@@ -61,6 +67,8 @@ msgid ""
 "You should not use this option if you have already manually tweaked the "
 "configuration of Icecast2."
 msgstr ""
+"No debería de de usar esta opción si ha cambiado manualmente parámetros de "
+"la configuración de Icecast2."
 
 #. Type: string
 #. Description
