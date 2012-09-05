@@ -17,7 +17,7 @@ icecast2 (2.3.2-9+deb7u1) wheezy; urgency=low
   * Italian, Beatrice Torracca. Closes: #686691
   * Dutch, Jeroen Schot. Closes: #686659
   * Brazilian Portuguese, Adriano Rafael Gomes. Closes: #652050, #686716
-  * Spanish, Rafael Ernesto Rivas.
+  * Spanish, Javier Fernández-Sanguino. Closes: #686773
 
  -- David Prévot <taffit@debian.org>  Tue, 04 Sep 2012 22:49:01 -0400
 
