@@ -1,5 +1,6 @@
-icecast2 (2.3.2-9+deb7u1) UNRELEASED; urgency=low
+icecast2 (2.3.2-9+deb7u1) wheezy; urgency=low
 
+  * Team upload.
   * Mark the first debconf template as translatable. Closes: #686181
 
   [ Debconf translations ]
@@ -15,10 +16,10 @@ icecast2 (2.3.2-9+deb7u1) UNRELEASED; urgency=low
   * Czech, Michal Simunek. Closes: #686607
   * Italian, Beatrice Torracca. Closes: #686691
   * Dutch, Jeroen Schot. Closes: #686659
-  * Brazilian Portuguese, Adriano Rafael Gomes. Closes: #686716
+  * Brazilian Portuguese, Adriano Rafael Gomes. Closes: #652050, #686716
   * Spanish, Rafael Ernesto Rivas.
 
- -- David Prévot <taffit@debian.org>  Tue, 04 Sep 2012 22:40:54 -0400
+ -- David Prévot <taffit@debian.org>  Tue, 04 Sep 2012 22:49:01 -0400
 
 icecast2 (2.3.2-9) unstable; urgency=medium
 
