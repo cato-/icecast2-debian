@@ -23,6 +23,7 @@ License: MIT~Rushing
 
 Files: admin/vclt.xsl
  admin/xspf.xsl
+Copyright:
   2007, Thomas B. Ruecker <tbr@ruecker-itk.de>
   2011, Philipp Schafft <lion@lion.leolix.org>
 License: GPL-2+
