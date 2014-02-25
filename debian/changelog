@@ -1,4 +1,6 @@
-icecast2 (2.3.3-2) UNRELEASED; urgency=low
+icecast2 (2.3.3-2) unstable; urgency=low
+
+  * Team Upload.
 
   [ Jonas Smedegaard ]
   * Add DEP3 header to patch 1001.
@@ -39,7 +41,13 @@ icecast2 (2.3.3-2) UNRELEASED; urgency=low
   * Brazilian Portuguese, Adriano Rafael Gomes. Closes: #652050, #686716
   * Spanish, Javier Fernández-Sanguino. Closes: #686773
 
- -- Jonas Smedegaard <dr@jones.dk>  Wed, 13 Jun 2012 02:21:01 +0200
+  [ Felipe Sateler ]
+  * Fix missing Copyright header
+  * Init script: import lsb functions
+  * Fix spelling mistake in README.Debian
+  * Import changes from wheezy upload to master
+
+ -- Felipe Sateler <fsateler@debian.org>  Tue, 25 Feb 2014 19:53:16 -0300
 
 icecast2 (2.3.3-1) unstable; urgency=low
 
