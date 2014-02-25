@@ -25,6 +25,8 @@ DESC=icecast2
 
 test -x $DAEMON || exit 0
 
+. /lib/lsb/init-functions
+
 # Defaults
 CONFIGFILE="/etc/icecast2/icecast.xml"
 CONFIGDEFAULTFILE="/etc/default/icecast2"
