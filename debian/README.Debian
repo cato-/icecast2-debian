@@ -20,10 +20,10 @@ reconfigure it and remove the account.
 Edit /etc/default/icecast2 to change the init-script configuration.
 
 It is possible (but discouraged for security reasons) to bind to a
-priviledged port (like standard web port 80). Edit /etc/init.d/icecast2
+privileged port (like standard web port 80). Edit /etc/init.d/icecast2
 to not change userid and instead set the correct userid and group in
 /etc/icecast2/icecast2.xml. Beware that this way you rely on the
-icecast2 binary to properly drop priviledges (instead of the much more
+icecast2 binary to properly drop privileges (instead of the much more
 thoroughly audited start-stop-daemon). Thanks to Jürgen A. Erhard
 <jae@jerhard.org> for the tip.
 
