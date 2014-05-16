@@ -597,6 +597,18 @@ void stats_event_time (const char *mount, const char *name)
 }
 
 
+void stats_event_time_iso8601 (const char *mount, const char *name)
+{
+    time_t now = time(NULL);
+    struct tm local;
+    char buffer[100];
+
+    localtime_r (&now, &local);
+    strftime (buffer, sizeof (buffer), "%FT%T%z", &local);
+    stats_event (mount, name, buffer);
+}
+
+
 void stats_global (ice_config_t *config)
 {
     stats_event (NULL, "server_id", config->server_id);
@@ -613,6 +625,7 @@ static void *_stats_thread(void *arg)
     event_listener_t *listener;
 
     stats_event_time (NULL, "server_start");
+    stats_event_time_iso8601 (NULL, "server_start_iso8601");
 
     /* global currently active stats */
     stats_event (NULL, "clients", "0");
@@ -631,9 +644,9 @@ static void *_stats_thread(void *arg)
 
     INFO0 ("stats thread started");
     while (_stats_running) {
+        thread_mutex_lock(&_global_event_mutex);
         if (_global_event_queue.head != NULL) {
             /* grab the next event from the queue */
-            thread_mutex_lock(&_global_event_mutex);
             event = _get_event_from_queue (&_global_event_queue);
             thread_mutex_unlock(&_global_event_mutex);
 
@@ -666,6 +679,10 @@ static void *_stats_thread(void *arg)
 
             thread_mutex_unlock(&_stats_mutex);
             continue;
+        }
+        else
+        {
+            thread_mutex_unlock(&_global_event_mutex);
         }
 
         thread_sleep(300000);
