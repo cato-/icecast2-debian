@@ -50,6 +50,7 @@
 #include "client.h"
 #include "stats.h"
 #include "fserve.h"
+#include "util.h"
 
 #define CATMODULE "xslt"
 
@@ -190,6 +191,7 @@ void xslt_transform(xmlDocPtr doc, const char *xslfilename, client_t *client)
     xmlChar *string;
     int len, problem = 0;
     const char *mediatype = NULL;
+    const char *charset = NULL;
 
     xmlSetGenericErrorFunc ("", log_parse_failure);
     xsltSetGenericErrorFunc ("", log_parse_failure);
@@ -210,7 +212,10 @@ void xslt_transform(xmlDocPtr doc, const char *xslfilename, client_t *client)
     if (xsltSaveResultToString (&string, &len, res, cur) < 0)
         problem = 1;
 
-    /* lets find out the content type to use */
+    /* lets find out the content type and character encoding to use */
+    if (cur->encoding)
+       charset = (char *)cur->encoding;
+
     if (cur->mediaType)
         mediatype = (char *)cur->mediaType;
     else
@@ -227,14 +232,16 @@ void xslt_transform(xmlDocPtr doc, const char *xslfilename, client_t *client)
     if (problem == 0)
     {
         /* the 100 is to allow for the hardcoded headers */
-        unsigned int full_len = strlen (mediatype) + len + 100;
+        unsigned int full_len = strlen (mediatype) + len + 256;
         refbuf_t *refbuf = refbuf_new (full_len);
+	ssize_t ret;
 
         if (string == NULL)
             string = xmlCharStrdup ("");
-        snprintf (refbuf->data, full_len,
-                "HTTP/1.0 200 OK\r\nContent-Type: %s\r\nContent-Length: %d\r\n\r\n%s",
-                mediatype, len, string);
+        ret = util_http_build_header(refbuf->data, full_len, 0, 0, 200, NULL, mediatype, charset, NULL);
+	snprintf (refbuf->data + ret, full_len - ret,
+                "Content-Length: %d\r\n\r\n%s",
+                len, string);
 
         client->respcode = 200;
         client_set_queue (client, NULL);

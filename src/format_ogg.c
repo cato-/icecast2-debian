@@ -40,6 +40,7 @@
 #ifdef HAVE_SPEEX
 #include "format_speex.h"
 #endif
+#include "format_opus.h"
 #include "format_midi.h"
 #include "format_flac.h"
 #include "format_kate.h"
@@ -120,7 +121,6 @@ void format_ogg_free_headers (ogg_state_t *ogg_info)
     {
         refbuf_t *to_release = header;
         header = header->next;
-        to_release->next = NULL;
         refbuf_release (to_release);
     }
     ogg_info->header_pages = NULL;
@@ -246,6 +246,9 @@ static int process_initial_page (format_plugin_t *plugin, ogg_page *page)
         if (codec)
             break;
         codec = initial_skeleton_page (plugin, page);
+        if (codec)
+            break;
+        codec = initial_opus_page (plugin, page);
         if (codec)
             break;
 

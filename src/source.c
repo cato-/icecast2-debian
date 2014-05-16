@@ -27,6 +27,7 @@
 #include <sys/time.h>
 #include <sys/socket.h>
 #include <sys/wait.h>
+#include <limits.h>
 #else
 #include <winsock2.h>
 #include <windows.h>
@@ -102,6 +103,7 @@ source_t *source_reserve (const char *mount)
         /* make duplicates for strings or similar */
         src->mount = strdup (mount);
         src->max_listeners = -1;
+        thread_mutex_create(&src->lock);
 
         avl_insert (global.source_tree, src);
 
@@ -168,7 +170,7 @@ source_t *source_find_mount (const char *mount)
         /* we either have a source which is not active (relay) or no source
          * at all. Check the mounts list for fallback settings
          */
-        mountinfo = config_find_mount (config, mount);
+        mountinfo = config_find_mount (config, mount, MOUNT_TYPE_NORMAL);
         source = NULL;
 
         if (mountinfo == NULL)
@@ -492,13 +494,15 @@ static refbuf_t *get_next_buffer (source_t *source)
         }
         if (fds == 0)
         {
-            if (source->last_read + (time_t)source->timeout < current)
+            thread_mutex_lock(&source->lock);
+            if ((source->last_read + (time_t)source->timeout) < current)
             {
                 DEBUG3 ("last %ld, timeout %d, now %ld", (long)source->last_read,
                         source->timeout, (long)current);
                 WARN0 ("Disconnecting source due to socket timeout");
                 source->running = 0;
             }
+            thread_mutex_unlock(&source->lock);
             break;
         }
         source->last_read = current;
@@ -576,6 +580,29 @@ static void send_to_listener (source_t *source, client_t *client, int deletion_e
 }
 
 
+/* Open the file for stream dumping.
+ * This function should do all processing of the filename.
+ */
+static FILE * source_open_dumpfile(const char * filename) {
+#ifndef _WIN32
+    /* some of the below functions seems not to be standard winapi functions */
+    char buffer[PATH_MAX];
+    time_t curtime;
+    struct tm *loctime;
+
+    /* Get the current time. */
+    curtime = time (NULL);
+
+    /* Convert it to local time representation. */
+    loctime = localtime (&curtime);
+
+    strftime (buffer, sizeof(buffer), filename, loctime);
+    filename = buffer;
+#endif
+
+    return fopen (filename, "ab");
+}
+
 /* Perform any initialisation just before the stream data is processed, the header
  * info is processed by now and the format details are setup
  */
@@ -611,7 +638,7 @@ static void source_init (source_t *source)
 
     if (source->dumpfilename != NULL)
     {
-        source->dumpfile = fopen (source->dumpfilename, "ab");
+        source->dumpfile = source_open_dumpfile (source->dumpfilename);
         if (source->dumpfile == NULL)
         {
             WARN2("Cannot open dump file \"%s\" for appending: %s, disabling.",
@@ -629,13 +656,14 @@ static void source_init (source_t *source)
     stats_event_args (source->mount, "listeners", "%lu", source->listeners);
     stats_event_args (source->mount, "listener_peak", "%lu", source->peak_listeners);
     stats_event_time (source->mount, "stream_start");
+    stats_event_time_iso8601 (source->mount, "stream_start_iso8601");
 
     DEBUG0("Source creation complete");
     source->last_read = time (NULL);
     source->prev_listeners = -1;
     source->running = 1;
 
-    mountinfo = config_find_mount (config_get_config(), source->mount);
+    mountinfo = config_find_mount (config_get_config(), source->mount, MOUNT_TYPE_NORMAL);
     if (mountinfo)
     {
         if (mountinfo->on_connect)
@@ -718,8 +746,10 @@ void source_main (source_t *source)
                 source->format->write_buf_to_file (source, refbuf);
         }
         /* lets see if we have too much data in the queue, but don't remove it until later */
+        thread_mutex_lock(&source->lock);
         if (source->queue_size > source->queue_size_limit)
             remove_from_q = 1;
+        thread_mutex_unlock(&source->lock);
 
         /* acquire write lock on pending_tree */
         avl_tree_wlock(source->pending_tree);
@@ -841,7 +871,7 @@ static void source_shutdown (source_t *source)
     source->running = 0;
     INFO1("Source \"%s\" exiting", source->mount);
 
-    mountinfo = config_find_mount (config_get_config(), source->mount);
+    mountinfo = config_find_mount (config_get_config(), source->mount, MOUNT_TYPE_NORMAL);
     if (mountinfo)
     {
         if (mountinfo->on_disconnect)
@@ -1169,13 +1199,16 @@ static void source_apply_mount (source_t *source, mount_proxy *mountinfo)
 
 /* update the specified source with details from the config or mount.
  * mountinfo can be NULL in which case default settings should be taken
+ * This function is called by the Slave thread
  */
 void source_update_settings (ice_config_t *config, source_t *source, mount_proxy *mountinfo)
 {
+    thread_mutex_lock(&source->lock);
     /*  skip if source is a fallback to file */
     if (source->running && source->client == NULL)
     {
         stats_event_hidden (source->mount, NULL, 1);
+        thread_mutex_unlock(&source->lock);
         return;
     }
     /* set global settings first */
@@ -1229,6 +1262,7 @@ void source_update_settings (ice_config_t *config, source_t *source, mount_proxy
     DEBUG1 ("burst size to %u", source->burst_size);
     DEBUG1 ("source timeout to %u", source->timeout);
     DEBUG1 ("fallback_when_full to %u", source->fallback_when_full);
+    thread_mutex_unlock(&source->lock);
 }
 
 
@@ -1326,13 +1360,13 @@ static void *source_fallback_file (void *arg)
     {
         if (mount == NULL || mount[0] != '/')
             break;
-        config = config_get_config();
+        config = config_get_config ();
         len  = strlen (config->webroot_dir) + strlen (mount) + 1;
         path = malloc (len);
         if (path)
             snprintf (path, len, "%s%s", config->webroot_dir, mount);
-        
         config_release_config ();
+
         if (path == NULL)
             break;
 
@@ -1390,8 +1424,11 @@ void source_recheck_mounts (int update_all)
     if (update_all)
         stats_clear_virtual_mounts ();
 
-    while (mount)
+    for (; mount; mount = mount->next)
     {
+        if (mount->mounttype != MOUNT_TYPE_NORMAL)
+	    continue;
+
         source_t *source = source_find_mount (mount->mountname);
 
         if (source)
@@ -1399,7 +1436,7 @@ void source_recheck_mounts (int update_all)
             source = source_find_mount_raw (mount->mountname);
             if (source)
             {
-                mount_proxy *mountinfo = config_find_mount (config, source->mount);
+                mount_proxy *mountinfo = config_find_mount (config, source->mount, MOUNT_TYPE_NORMAL);
                 source_update_settings (config, source, mountinfo);
             }
             else if (update_all)
@@ -1427,8 +1464,6 @@ void source_recheck_mounts (int update_all)
                         strdup (mount->fallback_mount), THREAD_DETACHED);
             }
         }
-
-        mount = mount->next;
     }
     avl_tree_unlock (global.source_tree);
     config_release_config();
