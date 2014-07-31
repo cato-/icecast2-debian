@@ -28,7 +28,7 @@ include /usr/share/cdbs/1/rules/debhelper.mk
 
 DEB_UPSTREAM_PACKAGE = icecast
 DEB_UPSTREAM_URL = http://downloads.xiph.org/releases/icecast/
-DEB_UPSTREAM_TARBALL_MD5 = 2b5d1b40778922e5f6431b7758c359ad
+DEB_UPSTREAM_TARBALL_MD5 = bb00bfc0d6d2dde24974641085602b81
 
 # suppress check of some images (in addition to defaults)
 DEB_COPYRIGHT_CHECK_IGNORE_REGEX = ^(win32/running\.bmp|doc/(listener_auth2|stats1|windowtitle|)\.jpg|debian/(changelog|copyright(|_hints|_newhints)))$
