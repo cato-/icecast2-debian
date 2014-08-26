@@ -25,7 +25,7 @@ Build-Depends: cdbs (>= 0.4.70~),
  autoconf-archive
 Vcs-Git: git://anonscm.debian.org/pkg-multimedia/icecast2.git
 Vcs-Browser: http://anonscm.debian.org/gitweb/?p=pkg-multimedia/icecast2.git
-Standards-Version: 3.9.3
+Standards-Version: 3.9.5
 Homepage: http://www.icecast.org/
 
 Package: icecast2
