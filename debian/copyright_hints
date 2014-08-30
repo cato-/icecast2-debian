@@ -38,39 +38,29 @@ Files: AUTHORS
  debian/icecast2.doc-base
  debian/icecast2.init
  debian/icecast2.logrotate
+ debian/icecast2.maintscript
  debian/icecast2.postinst
  debian/icecast2.postrm
- debian/patches/1001_autotools_avoid_debian-subdir.patch
  debian/patches/README
- debian/patches/series
  debian/po/POTFILES.in
- debian/po/pt.po
  debian/source/format
  debian/templates
  debian/watch
- doc/Index.hhk
  doc/Makefile.am
- doc/icecast2.hhc
- doc/icecast2.hhp
  doc/icecast2_admin.html
+ doc/icecast2_auth.html
  doc/icecast2_basicsetup.html
  doc/icecast2_changes.html
  doc/icecast2_config_file.html
  doc/icecast2_faq.html
  doc/icecast2_glossary.html
  doc/icecast2_introduction.html
- doc/icecast2_listenerauth.html
  doc/icecast2_relay.html
  doc/icecast2_stats.html
  doc/icecast2_win32.html
  doc/icecast2_yp.html
  doc/index.html
- doc/index_win32.html
  doc/relay.png
- doc/style.css
- doc/win32_section1.html
- doc/win32_section2.html
- doc/win32_section3.html
  examples/Makefile.am
  icecast.spec
  m4/acx_pthread.m4
@@ -119,16 +109,11 @@ Files: AUTHORS
  src/timing/timing.h
  web/Makefile.am
  web/auth.xsl
- web/corner_bottomleft.jpg
- web/corner_bottomright.jpg
- web/corner_topleft.jpg
- web/corner_topright.jpg
  web/icecast.png
- web/key.gif
  web/key.png
  web/server_version.xsl
+ web/status-json.xsl
  web/status.xsl
- web/status2.xsl
  web/style.css
  web/tunein.png
  win32/ConfigTab.cpp
@@ -180,8 +165,6 @@ Files: src/admin.c
  src/auth_htpasswd.c
  src/auth_htpasswd.h
  src/auth_url.h
- src/client.c
- src/client.h
  src/compat.h
  src/connection.h
  src/event.c
@@ -194,7 +177,6 @@ Files: src/admin.c
  src/format_kate.h
  src/format_midi.c
  src/format_midi.h
- src/format_mp3.c
  src/format_mp3.h
  src/format_ogg.c
  src/format_ogg.h
@@ -208,13 +190,10 @@ Files: src/admin.c
  src/fserve.h
  src/global.c
  src/global.h
- src/logging.c
  src/logging.h
- src/main.c
  src/md5.h
  src/refbuf.c
  src/refbuf.h
- src/sighandler.c
  src/sighandler.h
  src/slave.c
  src/slave.h
@@ -222,7 +201,6 @@ Files: src/admin.c
  src/source.h
  src/stats.c
  src/stats.h
- src/util.c
  src/util.h
  src/xslt.c
  src/xslt.h
@@ -233,10 +211,14 @@ License: UNKNOWN
  FIXME
 
 Files: Makefile.in
+ aclocal.m4
  admin/Makefile.in
  conf/Makefile.in
  doc/Makefile.in
  examples/Makefile.in
+ m4/ltsugar.m4
+ m4/ltversion.m4
+ m4/lt~obsolete.m4
  src/Makefile.in
  src/avl/Makefile.in
  src/httpp/Makefile.in
@@ -247,7 +229,33 @@ Files: Makefile.in
  web/Makefile.in
  win32/Makefile.in
  win32/res/Makefile.in
-Copyright: 1994-2002
+Copyright: 1994-2013, Free Software Foundation, Inc
+  1996-2013, Free Software Foundation, Inc
+  1997-2013, Free Software Foundation, Inc
+  1999-2013, Free Software Foundation, Inc
+  2001-2013, Free Software Foundation, Inc
+  2002-2013, Free Software Foundation, Inc
+  2003-2013, Free Software Foundation, Inc
+  2004, Free Software Foundation, Inc
+  2004-2005, 2007, 2009, Free Software Foundation, Inc
+  2004-2005, 2007-2008, Free Software Foundation, Inc
+  2004-2013, Free Software Foundation, Inc
+  2006-2013, Free Software Foundation, Inc
+  2009-2013, Free Software Foundation, Inc
+License: UNKNOWN
+ FIXME
+
+Files: src/client.c
+ src/client.h
+ src/connection.c
+ src/format_mp3.c
+ src/fserve.c
+ src/logging.c
+ src/sighandler.c
+ src/util.c
+Copyright: 2000-2004, Jack Moffitt <jack@xiph.org
+  2011, Philipp "ph3-der-loewe" Schafft <lion@lion.leolix.org>
+  2011-2012, Philipp "ph3-der-loewe" Schafft <lion@lion.leolix.org>
 License: UNKNOWN
  FIXME
 
@@ -258,26 +266,18 @@ Files: src/avl/COPYING
  src/timing/COPYING
 Copyright: 1991, Free Software Foundation, Inc
   <year> <name of author>
-  HOLDER, OR ANY OTHER PARTY WHO MAY MODIFY
-  HOLDERS AND/OR
   disclaimer" for the library, if
-  holder or other authorized
-  holder who places the Library under this License may add
   interest in the
   law: that is to say, a work containing the Library or a
-  notices, you must include the
 License: LGPL-ever
  FIXME
 
-Files: config.guess
- config.sub
- depcomp
- missing
-Copyright: 1992-1999,
-  1992-2000
-  1996-1997, 1999-2000, 2002-2006
-  1999-2000, 2003-2007, 2009-2010
-License: GPL-2+
+Files: src/format_ebml.c
+ src/format_ebml.h
+ src/format_opus.c
+ src/format_opus.h
+Copyright: 2012, David Richards, Mozilla Foundation
+License: UNKNOWN
  FIXME
 
 Files: src/net/resolver.c
@@ -295,14 +295,6 @@ Copyright:
 License: UNKNOWN
  FIXME
 
-Files: src/cfgfile.c
- src/connection.c
- src/fserve.c
-Copyright: 2000-2004, Jack Moffitt <jack@xiph.org
-  2011, Philipp "ph3-der-loewe" Schafft <lion@lion.leolix.org>
-License: UNKNOWN
- FIXME
-
 Files: debian/po/ru.po
  debian/po/templates.pot
  debian/po/vi.po
@@ -310,10 +302,10 @@ Copyright: YEAR THE PACKAGE'S HOLDER
 License: UNKNOWN
  FIXME
 
-Files: src/auth_url.c
- src/format_speex.c
-Copyright: 2000-2004, Jack Moffitt <jack@xiph.org>
-License: UNKNOWN
+Files: config.guess
+ config.sub
+Copyright: 1992-2013, Free Software Foundation, Inc
+License: GPL GPL-3
  FIXME
 
 Files: src/avl/avl.c
@@ -323,38 +315,32 @@ Copyright: 1995, Sam Rushing <rushing@nightmare.com>
 License: UNKNOWN
  FIXME
 
-Files: configure
-Copyright: (ISLOWER ? 'A' + ( - 'a') : )
-  (ISLOWER ? ( | 0x40) : )
-  1992-1996, 1998-2001,
-  1996-2001, 2003-2005
-  2010, Free Software Foundation, Inc
+Files: web/xml2json.xslt
+Copyright: 2006,2008, Doeke Zanstra
+License: BSD-2-clause
+ FIXME
+
+Files: install-sh
+Copyright: 1994, X Consortium
+License: Expat
+ FIXME
+
+Files: missing
+Copyright: 1996-1997, 1999-2000, 2002-2006
 License: GPL-2+
  FIXME
 
-Files: aclocal.m4
-Copyright: 1996, 1998, 2000-2005, 2008
-  1996-1997, 2000-2001, 2003, 2005,
-  1996-1997, 2000-2001, 2003, 2005, 2008
-  1996-2001, 2003-2005
-  1996-2004,
-  1997, 1999-2001, 2003-2005, 2008
-  1997, 2000-2001, 2003-2006, 2008
-  1999-2005, 2008
-  1999-2006, 2009
-  2001, 2003, 2005, 2008, 2011, Free Software Foundation
-  2001, 2003, 2005, 2011 Free Software Foundation, Inc
-  2001-2003, 2005, 2008, 2010 Free Software
-  2001-2003, 2005, 2009, Free Software Foundation, Inc
-  2002-2003, 2005-2008, 2011 Free Software
-  2003, 2005 Free Software Foundation, Inc
-  2003-2006, 2011 Free Software Foundation
-  2004, Free Software Foundation, Inc
-  2004-2005, 2007, 2009, Free Software Foundation, Inc
-  2004-2005, 2007-2008, Free Software Foundation, Inc
-  2004-2005, 2007-2009, Free Software Foundation
-  2004-2005, 2012 Free Software Foundation, Inc
-  2006, 2008, 2010, Free Software Foundation, Inc
+Files: configure
+Copyright: (ISLOWER ? 'A' + ( - 'a') : )
+  (ISLOWER ? ( | 0x40) : )
+  1992-1996, 1998-2012, Free Software Foundation, Inc
+  1996-2001, 2003-2005,
+  2012, Free Software Foundation, Inc
+License: GPL-2+
+ FIXME
+
+Files: m4/libtool.m4
+Copyright: 1996-2001, 2003-2005
   2011, Free Software Foundation, Inc
 License: GPL-2+
  FIXME
@@ -362,6 +348,16 @@ License: GPL-2+
 Files: ltmain.sh
 Copyright: 1996-2001, 2003-2006
   all begin with the string "--lt-"
+License: GPL-2+
+ FIXME
+
+Files: depcomp
+Copyright: 1999-2000, 2003-2007, 2009 Free
+License: GPL-2+
+ FIXME
+
+Files: compile
+Copyright: 1999-2013, Free Software Foundation, Inc
 License: GPL-2+
  FIXME
 
@@ -377,7 +373,7 @@ License: GPL-2+
  FIXME
 
 Files: admin/xspf.xsl
-Copyright: 2007, Thomas B. Ruecker, tbr@ruecker-itk.de
+Copyright: 2007, Thomas B. Ruecker, thomas@ruecker.fi
 License: GPL-2+
  FIXME
 
@@ -389,11 +385,7 @@ License: GPL-2+
 Files: COPYING
 Copyright: 1989, 1991 Free Software Foundation, Inc
   <year> <name of author>
-  HOLDER, OR ANY OTHER PARTY WHO MAY MODIFY AND/OR
-  HOLDERS AND/OR OTHER PARTIES
   disclaimer" for the program, if
-  holder saying it may be distributed
-  holder who places the Program under this License
   interest in the program
   law:
   the software, and
@@ -406,15 +398,20 @@ Copyright: 1999, the icecast team
 License: LGPL-2+
  FIXME
 
-Files: install-sh
-Copyright: 1994, X Consortium
-License: MIT/X11 (BSD like)
- FIXME
-
 Files: src/md5.c
 Copyright: 2000-2004, Jack Moffitt <jack@xiph.org
-  is claimed
 License: Public domain
+ FIXME
+
+Files: debian/po/pl.po
+Copyright: 2012
+License: UNKNOWN
+ FIXME
+
+Files: examples/icecast_auth-1.0.tar.gz
+Copyright: ö”…x Aít>Ó0IC§E
+  *ªA∑T√[/O'˛jÇNöeZüb∂®ú›|*õ»¶‡á"	‘ü\Ê¨˘xàÇ¶˘xHlL),A*⁄'4àÇR£$—%ôo) πvqM6d`Œ„e>K„9oØıM£7
+License: UNKNOWN
  FIXME
 
 Files: src/cfgfile.h
@@ -424,7 +421,9 @@ License: UNKNOWN
  FIXME
 
 Files: debian/po/fr.po
-Copyright: 2011, Debian French l10n team <debian-l10n-french@lists.debian.org>
+Copyright: 2011-2012, Debian French l10n team <debian-l10n-french@lists.debian.org>
+  la "
+  tant qu'ils ne seront pas configur√s."
   √† utiliser comme "
 License: UNKNOWN
  FIXME
@@ -434,13 +433,48 @@ Copyright: 2011, Erik Pfannenstein
 License: UNKNOWN
  FIXME
 
+Files: m4/ltoptions.m4
+Copyright: 2004-2005, 2007-2009, Free Software Foundation
+License: UNKNOWN
+ FIXME
+
+Files: debian/po/it.po
+Copyright: 2012, Icecast2 package holder
+License: UNKNOWN
+ FIXME
+
+Files: src/cfgfile.c
+Copyright: 2000-2004, Jack Moffitt <jack@xiph.org
+  2011, Thomas B. "dm8tbr" Ruecker <thomas.ruecker@tieto.com>
+  2011-2012, Philipp "ph3-der-loewe" Schafft <lion@lion.leolix.org>
+License: UNKNOWN
+ FIXME
+
+Files: src/main.c
+Copyright: 2000-2004, Jack Moffitt <jack@xiph.org
+  2011-2012, Philipp "ph3-der-loewe" Schafft <lion@lion.leolix.org>
+  2014, Thomas B. Ruecker <thomas@ruecker.fi>
+License: UNKNOWN
+ FIXME
+
+Files: src/format_speex.c
+Copyright: 2000-2004, Jack Moffitt <jack@xiph.org>
+License: UNKNOWN
+ FIXME
+
+Files: src/auth_url.c
+Copyright: 2000-2004, Jack Moffitt <jack@xiph.org>
+  2011-2012, Philipp "ph3-der-loewe" Schafft <lion@lion.leolix.org>
+License: UNKNOWN
+ FIXME
+
 Files: debian/po/sv.po
-Copyright: 2011, Martin Bagge <brother@bsnet.se>
+Copyright: 2012, Martin Bagge <brother@bsnet.se>
 License: UNKNOWN
  FIXME
 
 Files: debian/po/cs.po
-Copyright: 2010, Michal Simunek <michal.simunek@gmail.com>
+Copyright: 2012, Michal Simunek <michal.simunek@gmail.com>
   dom√nov√ jm√no, kter√ se m√° pou≈æ√≠t jako "
   rozhran√≠ pro spr√°vu na adrese http://localhost:8000."
   se m√° pou≈æ√≠t k ≈ô√≠zen√≠ p≈ô√≠stupu k medi√°ln√≠m "
@@ -455,7 +489,24 @@ License: UNKNOWN
  FIXME
 
 Files: debian/po/nl.po
-Copyright: 2011, THE PACKAGE'S HOLDER
+Copyright: 2011-2012, THE PACKAGE'S HOLDER
+License: UNKNOWN
+ FIXME
+
+Files: debian/po/sk.po
+Copyright: 2012, THE icecast2'S HOLDER
+  dom√nov√ meno, ktor√ m√° by≈• pou≈æit√ ako predpona pre "
+  m√° by≈• pou≈æit√ na riadenie pr√≠stupu k pr√∫dov√Ωm "
+  m√° by≈• pou≈æit√ na riadenie pr√≠stupu k zdrojom "
+  m√° by≈• pou≈æit√ pre administr√°ciu Icecast2."
+  preklady pre bal√≠k icecast2
+  rozhranie administr√°cie, na http://localhost:8000, mo≈æno pou≈æi≈• na "
+License: UNKNOWN
+ FIXME
+
+Files: debian/po/pt_BR.po
+Copyright: 2011, THE icecast2'S HOLDER
+  que as senhas sejam configuradas."
 License: UNKNOWN
  FIXME
 
@@ -465,7 +516,12 @@ License: UNKNOWN
  FIXME
 
 Files: debian/po/da.po
-Copyright: 2011, icecast2 & nedenst√•ende overs√¶ttere
+Copyright: 2012, icecast2 & nedenst√•ende overs√¶ttere
+License: UNKNOWN
+ FIXME
+
+Files: debian/po/pt.po
+Copyright: que "
 License: UNKNOWN
  FIXME
 
