@@ -1,3 +1,19 @@
+icecast2 (2.4.0-1) unstable; urgency=medium
+
+  * Imported Upstream version 2.4.0
+    - Dropped patches applied upstream.
+    - Update copyright.
+  * Add myself to uploaders.
+  * Make Vcs-* fields canonical.
+  * Update init script
+    - Add status option.  Closes: #742798
+    - Don't cancel on the stop target. (Closes: #740666)
+  * Remove obsolete file status2.xsl.
+  * Bump standards-version to 3.9.5.
+  * Bump debhelper compatibility level to 9.
+
+ -- Unit 193 <unit193@ubuntu.com>  Mon, 01 Sep 2014 11:01:08 -0400
+
 icecast2 (2.3.3-2) unstable; urgency=low
 
   * Team Upload.
