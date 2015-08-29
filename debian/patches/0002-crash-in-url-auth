@@ -1,0 +1,32 @@
+This fixes a crash (NULL reference) in case URL Auth is used
+and stream_auth is trigged with no credentials passed by the client.
+Username and password is now set to empty strings and transmited to
+the backend server this way.
+
+diff --git a/src/auth_url.c b/src/auth_url.c
+index 3212975..e18fcb1 100644 (file)
+--- a/src/auth_url.c
++++ b/src/auth_url.c
+@@ -539,10 +539,20 @@ static void url_stream_auth (auth_client *auth_user)
+     host = util_url_escape (config->hostname);
+     port = config->port;
+     config_release_config ();
+-    user = util_url_escape (client->username);
+-    pass = util_url_escape (client->password);
+     ipaddr = util_url_escape (client->con->ip);
+ 
++    if (client->username) {
++        user = util_url_escape(client->username);
++    } else {
++        user = strdup("");
++    }
++
++    if (client->password) {
++        pass = util_url_escape(client->password);
++    } else {
++        pass = strdup("");
++    }
++
+     snprintf (post, sizeof (post),
+             "action=stream_auth&mount=%s&ip=%s&server=%s&port=%d&user=%s&pass=%s%s",
+             mount, ipaddr, host, port, user, pass, admin);

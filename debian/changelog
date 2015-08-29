@@ -1,3 +1,26 @@
+icecast2 (2.4.0-1.1+deb8u1~bpo70+1) wheezy-backports; urgency=low
+
+  * Rebuild for wheezy-backports.
+
+ -- Robert Weidlich <debian@robertweidlich.de>  Sat, 29 Aug 2015 10:50:27 +0200
+
+icecast2 (2.4.0-1.1+deb8u1) jessie-security; urgency=high
+
+  * This fixes a crash (NULL reference) in case URL Auth is used
+    and stream_auth is trigged with no credentials passed by the client.
+    Username and password is now set to empty strings and transmited to
+    the backend server this way. (Closes: #782120, fixes CVE-2015-3026)
+
+ -- Unit 193 <unit193@ubuntu.com>  Tue, 28 Apr 2015 16:25:58 -0400
+
+icecast2 (2.4.0-1.1) unstable; urgency=medium
+
+  * Non-maintainer upload.
+  * Include patchset 19313 (close file handles for external scripts).
+    (Closes: #770222)
+
+ -- Simon Richter <sjr@debian.org>  Sun, 23 Nov 2014 20:02:58 +0100
+
 icecast2 (2.4.0-1) unstable; urgency=medium
 
   * Imported Upstream version 2.4.0
